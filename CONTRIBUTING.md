@@ -6,7 +6,7 @@ is no promised response time.
 ## Development
 
 - Node.js 20 or newer. The package has no runtime dependencies; please keep it that way.
-- Run the tests: `node --test test/` (every behavior test runs in every dialect).
+- Run the tests: `node --test` (every behavior test runs in every dialect).
 - Run the linter: `npm install` once, then `npm run lint`.
 - Before a pull request, run the privacy scan: `node scripts/privacy-scan.mjs` (add `--term` for names you want to
   keep out, such as your own).

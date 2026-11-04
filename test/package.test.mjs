@@ -45,5 +45,7 @@ test("package.json declares the module type, the command, Node 20+, the MIT lice
   assert.equal(pkg.engines.node, ">=20");
   assert.equal(pkg.dependencies, undefined);
   assert.ok(Object.values(pkg.devDependencies).every((version) => /^\d+\.\d+\.\d+$/.test(version)), "dev dependencies are pinned");
-  assert.ok(fs.readFileSync(path.join(ROOT, "LICENSE"), "utf8").startsWith(`MIT License\n\nCopyright (c) 2026 ${pkg.author}\n`));
+  // a Windows checkout may turn line ends into CRLF
+  const license = fs.readFileSync(path.join(ROOT, "LICENSE"), "utf8").replace(/\r\n/g, "\n");
+  assert.ok(license.startsWith(`MIT License\n\nCopyright (c) 2026 ${pkg.author}\n`));
 });

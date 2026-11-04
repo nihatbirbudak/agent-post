@@ -605,6 +605,27 @@ for (const dialect of DIALECT_NAMES) {
     assert.deepEqual([message.from, message.verified], ["alice", "folder"]);
   });
 
+  t("a folder reached through a symbolic link verifies the same agent, whichever form was registered", () => {
+    const root = h.newRoot();
+    const linkType = process.platform === "win32" ? "junction" : "dir";
+    const real = path.join(root, "real");
+    for (const name of ["carol", "dave"]) fs.mkdirSync(path.join(real, name, "sub"), { recursive: true });
+    fs.symlinkSync(path.join(real, "carol"), path.join(root, "link-carol"), linkType);
+    fs.symlinkSync(path.join(real, "dave"), path.join(root, "link-dave"), linkType);
+    // registered through the link, working in the resolved folder (a macOS temporary folder looks like this)
+    post.register(root, { name: "carol", kind: "claude", folder: path.join(root, "link-carol") });
+    post.send(root, { from: "carol", to: "operator", subject: "a", text: "b", folder: path.join(real, "carol", "sub") });
+    // registered as the resolved folder, working through the link (CLI in the linked folder)
+    post.register(root, { name: "dave", kind: "claude", folder: path.join(real, "dave") });
+    const sent = h.run(root, path.join(root, "link-dave", "sub"), ["send", "operator", "--from", "dave", "--subject", "c", "--text", "d"]);
+    assert.equal(sent.status, 0, sent.stderr);
+    assert.deepEqual(post.inbox(root, "operator").map((m) => [m.from, m.verified]), [["carol", "folder"], ["dave", "folder"]]);
+    // a link into another agent's folder is still that agent's folder
+    assert.throws(() => post.send(root, { from: "alice", to: "operator", subject: "x", text: "y", folder: path.join(root, "link-dave") }), {
+      code: "identity_mismatch",
+    });
+  });
+
   t("the verify query reports verification and mode without logging; send returns the verification", () => {
     const root = h.newRoot();
     const place = path.join(root, "operator-root");

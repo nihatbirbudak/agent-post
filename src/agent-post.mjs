@@ -1018,6 +1018,28 @@ function contains(outer, inner) {
   return inner === outer || inner.startsWith(outer + path.sep);
 }
 
+/** A folder's normal forms: as given and, when it exists, with symbolic links resolved. A working folder usually comes
+ * resolved (macOS temporary folders live under `/private/var`, reached through the `/var` link), a registered folder
+ * as it was typed; without links both forms are the same. */
+function folderForms(ctx, folder) {
+  const forms = new Set([normalArea(ctx, folder)]);
+  try {
+    forms.add(normalArea(ctx, fs.realpathSync.native(path.resolve(folder))));
+  } catch {
+    // The folder does not exist (yet): only the given form.
+  }
+  return [...forms];
+}
+
+/** Length of the longest form of `outer` that contains a form of `inner`, or -1. */
+function containedBy(outerForms, innerForms) {
+  let longest = -1;
+  for (const outer of outerForms) {
+    if (outer.length > longest && innerForms.some((inner) => contains(outer, inner))) longest = outer.length;
+  }
+  return longest;
+}
+
 /** Gives the agent a new token (the old one stops working); the plain token is visible only in this return, the
  * registry keeps its SHA-256 digest. An install step; over CLI and MCP a token is renewed only by `register`. */
 export function issueToken(root, name) {
@@ -1084,13 +1106,13 @@ export function register(
     logEvent(ctx, { event: "identity_mismatch", agent: name, operation: "register" });
     throw fail(ctx, "identity_mismatch", textId, textId === "folderOutside" ? folder : name);
   };
-  if (folder && caller_folder && !contains(normalArea(ctx, folder), normalArea(ctx, caller_folder))) reject("folderOutside");
+  if (folder && caller_folder && containedBy(folderForms(ctx, folder), folderForms(ctx, caller_folder)) < 0) reject("folderOutside");
   const existing = readRegistry(ctx).agents[name];
   const folderChanges = Boolean(existing && folder && (!existing.folder || normalArea(ctx, folder) !== normalArea(ctx, existing.folder)));
   if (folderChanges || (existing && new_token)) {
     const authorized =
       tokenMatches(existing, token) ||
-      Boolean(existing.folder && caller_folder && contains(normalArea(ctx, existing.folder), normalArea(ctx, caller_folder)));
+      Boolean(existing.folder && caller_folder && containedBy(folderForms(ctx, existing.folder), folderForms(ctx, caller_folder)) >= 0);
     if (!authorized) reject("registrationLocked");
   }
   const time = now();
@@ -1141,14 +1163,14 @@ export function setStatus(root, name, { status, quota_note = undefined }) {
 export function folderCandidates(root, folder) {
   const ctx = context(root);
   if (!folder) return [];
-  const target = normalArea(ctx, folder);
+  const targets = folderForms(ctx, folder);
   let longest = -1;
   let candidates = [];
   for (const agent of Object.values(readRegistry(ctx).agents)) {
     if (!agent.folder) continue;
-    const area = normalArea(ctx, agent.folder);
-    if (!contains(area, target) || area.length < longest) continue;
-    if (area.length > longest) [longest, candidates] = [area.length, []];
+    const length = containedBy(folderForms(ctx, agent.folder), targets);
+    if (length < 0 || length < longest) continue;
+    if (length > longest) [longest, candidates] = [length, []];
     candidates.push(agent.name);
   }
   return candidates;
