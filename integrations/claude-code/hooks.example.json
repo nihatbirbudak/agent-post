@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node ~/agent-post/bin/agent-post.mjs hook UserPromptSubmit", "timeout": 10 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node ~/agent-post/bin/agent-post.mjs hook Stop", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

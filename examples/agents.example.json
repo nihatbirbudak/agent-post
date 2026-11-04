@@ -1,0 +1,9 @@
+{
+  "dialect": "en",
+  "approver": "the human operator",
+  "agents": [
+    { "name": "alice", "kind": "claude", "account": "personal", "folder": "~/projects/alice" },
+    { "name": "codex", "kind": "codex", "token_hint": "Codex: put it in the env of the agent-post MCP server entry" },
+    { "name": "operator", "kind": "assistant", "token_hint": "your assistant's secret store; pass it as AGENT_POST_TOKEN" }
+  ]
+}

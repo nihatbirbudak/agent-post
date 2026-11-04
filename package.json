@@ -1,0 +1,50 @@
+{
+  "name": "agent-post",
+  "version": "0.1.0",
+  "description": "A local mailbox, task board and folder-lock service for AI coding agents that share one computer: CLI, MCP server and Claude Code hook in one dependency-free file.",
+  "keywords": [
+    "mcp",
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "multi-agent",
+    "mailbox",
+    "task-board"
+  ],
+  "license": "MIT",
+  "author": "Nihat Birbudak",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nihatbirbudak/agent-post.git"
+  },
+  "homepage": "https://github.com/nihatbirbudak/agent-post#readme",
+  "bugs": {
+    "url": "https://github.com/nihatbirbudak/agent-post/issues"
+  },
+  "type": "module",
+  "bin": {
+    "agent-post": "bin/agent-post.mjs"
+  },
+  "exports": "./src/agent-post.mjs",
+  "files": [
+    "bin/",
+    "src/",
+    "install.mjs",
+    "examples/",
+    "integrations/",
+    "docs/",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "lint": "eslint .",
+    "privacy-scan": "node scripts/privacy-scan.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.17.0",
+    "eslint": "9.17.0"
+  }
+}

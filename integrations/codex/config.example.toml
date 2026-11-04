@@ -1,0 +1,7 @@
+# Add to ~/.codex/config.toml. Codex has no folder binding of its own, so it proves its identity with the
+# registration token printed once by install.mjs: paste it between the empty quotes below and never commit the
+# real value.
+[mcp_servers.agent-post]
+command = "node"
+args = ["/home/<you>/agent-post/bin/agent-post.mjs", "mcp", "--as", "codex"]
+env = { AGENT_POST_TOKEN = "" }
