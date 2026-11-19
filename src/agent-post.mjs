@@ -98,6 +98,8 @@ const EN = {
   name: "en",
   files: {
     agents: "agents.json",
+    agentsBackup: "agents.json.bak",
+    backupWarning: "backup-warning.json",
     log: "log.jsonl",
     settings: "settings.json",
     corrupt: "corrupt-lines.json",
@@ -134,6 +136,14 @@ const EN = {
   text: {
     lockTimeout: (name) => `Could not acquire lock: ${name}`,
     corruptFile: (name) => `Could not read: ${name}`,
+    readFailed: (name, code) => `Could not read: ${name} (${code || "read error"})`,
+    backupRead: (file, age, stale) =>
+      `${file} is corrupt; the registry was read from its backup, which is ${age} old` +
+      (stale ? " and older than the main file: the latest registry changes (new agent, token renewal) may be missing" : ""),
+    duration: (amount, unit) => `${amount} ${{ s: "s", min: "min", h: "h", d: "days" }[unit]}`,
+    unknownAge: () => "of unknown age",
+    warning: (text) => `warning: ${text}`,
+    hookWarning: (text) => `agent-post warning: ${text}`,
     invalidName: (field, name) => `${field} must be lowercase letters, digits and hyphens (2-40): ${name}`,
     notString: (field) => `${field} must be a string.`,
     tooLong: (field) => `${field} is too long.`,
@@ -198,6 +208,8 @@ const TR_V1 = {
   name: "tr-v1",
   files: {
     agents: "ajanlar.json",
+    agentsBackup: "ajanlar.json.yedek",
+    backupWarning: "yedek-uyarisi.json",
     log: "gunluk.jsonl",
     settings: "ayarlar.json",
     corrupt: "bozuk-satirlar.json",
@@ -270,6 +282,14 @@ const TR_V1 = {
     limit: "sinir",
     mark_read: "isaretle",
     new_token: "yeni_belirtec",
+    main_time: "asil_zamani",
+    backup_time: "yedek_zamani",
+    backup_age_s: "yedek_yasi_sn",
+    backup_stale: "yedek_eski",
+    at_ms: "an_ms",
+    copy_id: "kimlik",
+    warning: "uyari",
+    error: "hata",
   },
   values: {
     assistant: "jarvis",
@@ -312,6 +332,8 @@ const TR_V1 = {
     token_required: "belirtec_gerekli",
     identity_unverified: "kimlik_dogrulanamadi",
     issued: "verildi",
+    corrupt_file_from_backup: "bozuk_dosya_yedekten",
+    backup_not_written: "yedek_yazilamadi",
   },
   commands: {
     register: "kayit",
@@ -417,6 +439,14 @@ const TR_V1 = {
   text: {
     lockTimeout: (name) => `Kilit alınamadı: ${name}`,
     corruptFile: (name) => `Okunamadı: ${name}`,
+    readFailed: (name, code) => `Okunamadı: ${name} (${code || "okuma hatası"})`,
+    backupRead: (file, age, stale) =>
+      `${file} bozuk; kayıt yedekten okundu, yedeğin yaşı ${age}` +
+      (stale ? " ve asıl dosyadan eski: son kayıt değişiklikleri (yeni ajan, belirteç yenilemesi) eksik olabilir" : ""),
+    duration: (amount, unit) => `${amount} ${{ s: "sn", min: "dk", h: "sa", d: "gün" }[unit]}`,
+    unknownAge: () => "bilinmiyor",
+    warning: (text) => `uyari: ${text}`,
+    hookWarning: (text) => `Ajan postası uyarısı: ${text}`,
     invalidName: (field, name) => `${field} küçük harf, rakam ve tire olmalı (2-40): ${name}`,
     notString: (field) => `${field} metin olmalı.`,
     tooLong: (field) => `${field} çok uzun.`,
@@ -618,6 +648,8 @@ export function layout(root) {
     root: ctx.root,
     dialect: ctx.d.name,
     agents: join(files.agents),
+    agentsBackup: join(files.agentsBackup),
+    backupWarning: join(files.backupWarning),
     log: join(files.log),
     settings: join(files.settings),
     corrupt: join(files.corrupt),
@@ -752,9 +784,20 @@ export function withFileLock(root, file, work, { wait = LOCK_WAIT_MS } = {}) {
   }
 }
 
+/** Writes a temporary file, forces it to disk (`fsync`), then puts it in place. Without the `fsync`, a power cut after
+ * the rename can leave the new name on a file whose data never reached the disk (a file full of zero bytes). */
 export function atomicWrite(file, text) {
   const temporary = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
-  fs.writeFileSync(temporary, text, "utf8");
+  const fd = fs.openSync(temporary, "w");
+  try {
+    fs.writeSync(fd, text, null, "utf8");
+    fs.fsyncSync(fd);
+  } catch (error) {
+    fs.closeSync(fd);
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
+  fs.closeSync(fd);
   for (let attempt = 0; ; attempt++) {
     try {
       fs.renameSync(temporary, file);
@@ -771,13 +814,129 @@ export function atomicWrite(file, text) {
   }
 }
 
-function readJson(ctx, file, fallback) {
+// Corrupt files already reported as read from their backup in this process (path, size, mtime): reported once.
+const reportedBackups = new Set();
+// The warning for the next answer after a read from a backup (`takeBackupWarning`; MCP, CLI and the prompt hook).
+let pendingWarning = null;
+// How long the shared copy of the warning lives: within it every process (each MCP server, hook and CLI call) shows it
+// once; after it the first reader removes it. Removing it on first read would let a process whose output nobody reads
+// (a background poller) use it up.
+export const BACKUP_WARNING_MS = 15 * 60 * 1000;
+// Ids of shared copies already shown in this process.
+const shownCopies = new Set();
+
+/** The pending backup warning, or null: a read from a backup is never silent. The in-process warning is given once;
+ * with `root`, the shared copy (written when the fallback happened, for the case that its process ends before it can
+ * show it, like a Stop hook that also repairs the file) is given once per process during `BACKUP_WARNING_MS`, and an
+ * expired copy is removed. Only paths whose answer is read call this (MCP, CLI, `UserPromptSubmit`); `Stop` and
+ * `SessionStart` do not. */
+export function takeBackupWarning(root = null) {
+  let warning = pendingWarning;
+  pendingWarning = null;
+  if (root) {
+    const ctx = context(root);
+    const file = path.join(ctx.root, ctx.d.files.backupWarning);
+    let copy = null;
+    try {
+      copy = decode(ctx.d, JSON.parse(fs.readFileSync(file, "utf8")));
+    } catch {
+      // no copy, or an unreadable one: the in-process warning is enough
+    }
+    if (copy && typeof copy === "object") {
+      const age = Date.now() - Number(copy.at_ms);
+      if (!(age >= 0 && age < BACKUP_WARNING_MS)) {
+        try {
+          fs.rmSync(file, { force: true });
+        } catch {
+          // not removed: an expired copy is not shown, the next reader tries again
+        }
+      } else if (typeof copy.warning === "string" && !shownCopies.has(copy.copy_id)) {
+        shownCopies.add(copy.copy_id);
+        warning = warning || copy.warning;
+      }
+    }
+  }
+  return warning;
+}
+
+function duration(ctx, ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 120) return ctx.d.text.duration(s, "s");
+  if (s < 7200) return ctx.d.text.duration(Math.round(s / 60), "min");
+  if (s < 172800) return ctx.d.text.duration(Math.round(s / 3600), "h");
+  return ctx.d.text.duration(Math.round(s / 86400), "d");
+}
+
+function modified(file) {
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    return fs.statSync(file).mtime;
+  } catch {
+    return null;
+  }
+}
+
+/** Notes a read from a backup, once per corrupt file version in this process: a log entry with both modification
+ * times and the backup's age (`backup_stale` when the main file is newer), and the warning for the next answer, in
+ * this process and as a shared copy. */
+function noteBackupRead(ctx, file, backup, size) {
+  const mainTime = modified(file);
+  const backupTime = modified(backup);
+  const signature = `${file}:${size}:${mainTime?.getTime()}`;
+  if (reportedBackups.has(signature)) return;
+  reportedBackups.add(signature);
+  const stale = Boolean(mainTime && backupTime && mainTime > backupTime);
+  const age = backupTime ? duration(ctx, Date.now() - backupTime.getTime()) : ctx.d.text.unknownAge();
+  pendingWarning = ctx.d.text.backupRead(path.basename(file), age, stale);
+  try {
+    // this process counts the copy as shown: it gives the warning from memory once
+    const copyId = crypto.randomBytes(8).toString("hex");
+    shownCopies.add(copyId);
+    const copy = { time: now(), at_ms: Date.now(), copy_id: copyId, warning: pendingWarning };
+    atomicWrite(path.join(ctx.root, ctx.d.files.backupWarning), `${JSON.stringify(encode(ctx.d, copy))}\n`);
+  } catch {
+    // the copy could not be written: this process still shows the warning
+  }
+  logEvent(ctx, {
+    event: "corrupt_file_from_backup",
+    file: path.basename(file),
+    main_time: mainTime ? now(mainTime) : null,
+    backup_time: backupTime ? now(backupTime) : null,
+    backup_age_s: backupTime ? Math.round((Date.now() - backupTime.getTime()) / 1000) : null,
+    ...(stale ? { backup_stale: true } : {}),
+  });
+}
+
+/** Reads a JSON file; `fallback` if it does not exist. A read error (permission, busy file) is `corrupt_file` and never
+ * falls back to the backup: a sound file that cannot be read right now must not be replaced by an older copy. Only if
+ * the content is corrupt (cannot be parsed, or `valid` rejects it) and a `backup` is given is the backup read
+ * (`noteBackupRead`); if the backup is missing, unparseable or invalid too: `corrupt_file`. */
+function readJson(ctx, file, fallback, { backup = null, valid = () => true } = {}) {
+  let text;
+  try {
+    text = fs.readFileSync(file, "utf8");
   } catch (error) {
     if (error.code === "ENOENT") return fallback;
-    throw fail(ctx, "corrupt_file", "corruptFile", path.basename(file));
+    throw fail(ctx, "corrupt_file", "readFailed", path.basename(file), error.code);
   }
+  try {
+    const data = JSON.parse(text);
+    if (valid(data)) return data;
+  } catch {
+    // corrupt content: the backup is tried below
+  }
+  if (backup) {
+    let data;
+    try {
+      data = JSON.parse(fs.readFileSync(backup, "utf8"));
+    } catch {
+      data = undefined;
+    }
+    if (data !== undefined && valid(data)) {
+      noteBackupRead(ctx, file, backup, Buffer.byteLength(text));
+      return data;
+    }
+  }
+  throw fail(ctx, "corrupt_file", "corruptFile", path.basename(file));
 }
 
 function writeJson(file, data) {
@@ -817,7 +976,8 @@ export function readLines(root, file) {
   const records = [];
   const corrupt = [];
   text.split("\n").forEach((line, index) => {
-    if (!line.trim()) return;
+    // a part made only of zero bytes (an append that never reached the disk before a power cut) is not a line
+    if (!line.replace(/\0/g, "").trim()) return;
     try {
       const record = JSON.parse(line);
       if (record && typeof record === "object" && !Array.isArray(record)) records.push(record);
@@ -917,16 +1077,39 @@ function registryFile(ctx) {
   return path.join(ctx.root, ctx.d.files.agents);
 }
 
+/** The registry's last sound copy: written after every registry write, read when the registry's content is corrupt. */
+function registryBackup(ctx) {
+  return path.join(ctx.root, ctx.d.files.agentsBackup);
+}
+
+/** Registry shape: an object whose agents field is an object (valid JSON of another shape is corrupt too). */
+function registryValid(ctx, data) {
+  const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+  return object(data) && object(data[local(ctx.d.keys, "agents")]);
+}
+
 function readRegistry(ctx) {
-  const raw = readJson(ctx, registryFile(ctx), null);
+  const raw = readJson(ctx, registryFile(ctx), null, { backup: registryBackup(ctx), valid: (data) => registryValid(ctx, data) });
   if (!raw) return { v: FORMAT_VERSION, agents: {} };
   const { [local(ctx.d.keys, "agents")]: agents, ...rest } = raw;
   return { ...decode(ctx.d, rest), agents: decodeMap(ctx.d, agents) };
 }
 
+/** Writes the registry, then its backup: the backup is the last confirmed registry. A failed backup write does not
+ * fail the call (a token just issued must not be lost, a call that did its work must not be retried); it is logged. */
 function writeRegistry(ctx, registry) {
   const { agents, ...rest } = registry;
-  writeJson(registryFile(ctx), { ...encode(ctx.d, rest), [local(ctx.d.keys, "agents")]: encodeMap(ctx.d, agents) });
+  const data = { ...encode(ctx.d, rest), [local(ctx.d.keys, "agents")]: encodeMap(ctx.d, agents) };
+  writeJson(registryFile(ctx), data);
+  try {
+    writeJson(registryBackup(ctx), data);
+  } catch (error) {
+    try {
+      logEvent(ctx, { event: "backup_not_written", file: ctx.d.files.agentsBackup, error: error.code || error.name });
+    } catch {
+      // the log cannot be written either: the main write still stands
+    }
+  }
 }
 
 /** Registered agents with their full records (English names). */
@@ -1657,7 +1840,12 @@ export function hook(eventName, input, root) {
     const data = JSON.parse((input || "{}").replace(/^\uFEFF/, ""));
     const me = folderAgent(ctx, data.cwd);
     if (!me) return "";
-    if (eventName === "UserPromptSubmit") return summary(ctx, me);
+    if (eventName === "UserPromptSubmit") {
+      // only the hook whose output reaches the model takes the backup warning; Stop and SessionStart leave it
+      const text = summary(ctx, me);
+      const warning = takeBackupWarning(ctx);
+      return warning ? [text, ctx.d.text.hookWarning(warning)].filter(Boolean).join("\n") : text;
+    }
     touch(ctx, me);
     return "";
   } catch {
@@ -1724,16 +1912,22 @@ export function mcpHandle(request, state, root) {
   if (method === "ping") return reply({});
   if (method === "tools/list") return reply({ tools: toolList(d.name) });
   if (method === "tools/call") {
+    // the answer of a call made with a registry read from its backup carries the warning (no silent loss)
+    const warning = () => {
+      const text = takeBackupWarning(ctx);
+      return text ? [{ type: "text", text: d.text.warning(text) }] : [];
+    };
     try {
       const name = english(d.toolsBack, d.tools, params.name);
       const result = callTool(ctx, name, decode(d, params.arguments || {}), state, params.name);
-      return reply({ content: [{ type: "text", text: JSON.stringify(name === "agents" ? encodeMap(d, result) : encode(d, result), null, 2) }] });
+      const text = JSON.stringify(name === "agents" ? encodeMap(d, result) : encode(d, result), null, 2);
+      return reply({ content: [{ type: "text", text }, ...warning()] });
     } catch (error) {
       const text =
         error instanceof PostError
           ? `${local(d.errors, error.code)}: ${error.message}`
           : `${local(d.errors, "unexpected_error")}: ${error.message}`;
-      return reply({ content: [{ type: "text", text }], isError: true });
+      return reply({ content: [{ type: "text", text }, ...warning()], isError: true });
     }
   }
   if (id === undefined) return null;
@@ -1834,9 +2028,14 @@ export function main(argv, env = process.env) {
   try {
     const result = cli(argv, ctx, { folder: process.cwd(), token: env[ctx.d.env.token] });
     process.stdout.write(typeof result === "string" ? (result ? `${result}\n` : "") : `${JSON.stringify(result, null, 2)}\n`);
+    const warning = takeBackupWarning(ctx);
+    if (warning) process.stderr.write(`${ctx.d.text.warning(warning)}\n`);
   } catch (error) {
+    // the rejection is the first line (clients may read only that), the backup warning follows
+    if (error instanceof PostError) process.stderr.write(`${local(ctx.d.errors, error.code)}: ${error.message}\n`);
+    const warning = takeBackupWarning(ctx);
+    if (warning) process.stderr.write(`${ctx.d.text.warning(warning)}\n`);
     if (error instanceof PostError) {
-      process.stderr.write(`${local(ctx.d.errors, error.code)}: ${error.message}\n`);
       process.exitCode = error.code === "unknown_command" ? 2 : 1;
       return;
     }
