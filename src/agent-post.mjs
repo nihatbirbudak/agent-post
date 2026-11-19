@@ -176,9 +176,15 @@ const EN = {
     noReservedSwitch: () => "it cannot switch to a reserved name",
     sameKindOnly: () => "it can switch only to a name of the same kind",
     otherSession: (name) => `${name} is another session's registration`,
-    protectedNoCodex: (from, to) => `${from} is of kind codex and cannot reach ${to}.`,
-    protectedNeedsInstall: (from, to) => `${from} was not registered by the installer; only installed agents reach ${to}.`,
-    protectedNeedsToken: (from, to) => `${from} was not verified by its token; only token-verified senders reach ${to}.`,
+    protectedNoCodex: (from, to) =>
+      `${from} is of kind codex and cannot reach the protected agent ${to}. Send it to an agent that is not of kind ` +
+      "codex (for example the session that gave you the task); it can pass it on.",
+    protectedNeedsInstall: (from, to) =>
+      `${from} was not registered by the installer, and only installed agents reach the protected agent ${to}. Send it ` +
+      "to an installed agent instead, or ask the operator to add you to the install config.",
+    protectedNeedsToken: (from, to) =>
+      `${from} was not verified by its token, and only token-verified senders reach the protected agent ${to}. Send ` +
+      "again with your token in AGENT_POST_TOKEN or the MCP token argument.",
     folderOutside: (folder) => `A folder binding can only be set to the working folder or one of its parents: ${folder}`,
     registrationLocked: (name) => `${name}'s folder or token can change only from its own folder or with a valid token.`,
     badReplyTo: () => "reply_to is not valid.",
@@ -537,9 +543,15 @@ const TR_V1 = {
     noReservedSwitch: () => "ayrılmış bir ada geçilmez",
     sameKindOnly: () => "yalnız aynı türden bir ada geçilir",
     otherSession: (name) => `${name} başka bir oturumun kaydı`,
-    protectedNoCodex: (from, to) => `Codex türündeki ajan (${from}) ${to} ajanına ulaşamaz.`,
-    protectedNeedsInstall: (from, to) => `${from} kurulumca kaydedilmiş bir ajan değil; ${to} ajanına yalnız kurulumun ajanları yazar.`,
-    protectedNeedsToken: (from, to) => `${from} belirteçle doğrulanmadı; ${to} ajanına yalnız belirteçle yazılır.`,
+    protectedNoCodex: (from, to) =>
+      `Codex türündeki ajan (${from}) korunan ajana (${to}) ulaşamaz. Codex türü olmayan bir ajana yazın (örneğin size ` +
+      "işi veren oturuma); o iletir.",
+    protectedNeedsInstall: (from, to) =>
+      `${from} kurulumca kaydedilmiş bir ajan değil; korunan ajana (${to}) yalnız kurulumun ajanları yazar. Kurulumun ` +
+      "bir ajanına yazın ya da operatörden kurulum yapılandırmasına eklenmeyi isteyin.",
+    protectedNeedsToken: (from, to) =>
+      `${from} belirteçle doğrulanmadı; korunan ajana (${to}) yalnız belirteçle yazılır. Belirteci AJAN_POSTA_BELIRTEC ` +
+      "ya da MCP belirtec alanıyla verip yeniden gönderin.",
     folderOutside: (folder) => `Klasör bağı yalnız çalışılan klasöre ya da üst klasörlerinden birine kurulur: ${folder}`,
     registrationLocked: (name) =>
       `${name} kaydının klasörü ya da belirteci yalnız kendi klasöründen ya da geçerli belirteçle değişir.`,

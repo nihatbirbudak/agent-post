@@ -476,6 +476,63 @@ for (const dialect of DIALECT_NAMES) {
     assert.ok(!log(root).includes(SUBJECT));
   });
 
+  t("reserved names and protection are off without their settings (a 0.1.0 root works as before) and on with them", () => {
+    const root = fresh();
+    const repo = path.join(root, "repo");
+    const worktree = path.join(repo, "worktrees", "w");
+    const tree = path.join(root, "codex-tree");
+    fs.mkdirSync(worktree, { recursive: true });
+    install(root, "lead", "claude", repo, true);
+    const operator = install(root, "operator", "assistant").token;
+    post.register(root, { name: "codex-map", kind: "codex", folder: tree });
+    const task = post.openTask(root, { from: "operator", title: "Job", text: "x", token: operator });
+    const off = () => {
+      assert.equal(post.send(root, { from: "lead", to: "operator", subject: "a", text: "b", folder: worktree }).verified, "folder");
+      assert.equal(post.send(root, { from: "codex-map", to: "operator", subject: "a", text: "b", folder: tree }).verified, "folder");
+      assert.equal(post.openTask(root, { from: "codex-map", title: "Board", text: "x", folder: tree }).status, "open");
+      assert.equal(post.openTask(root, { from: "codex-map", to: "operator", title: "For you", text: "x", folder: tree }).status, "open");
+    };
+    off();
+    assert.equal(post.register(root, { name: "spare", kind: "claude" }).name, "spare");
+    post.hook("Stop", JSON.stringify({ cwd: worktree }), root);
+    assert.ok(post.agents(root).lead.last_seen);
+    assert.equal(post.claimTask(root, task.id, "codex-map", { folder: tree }).claimed_by, "codex-map");
+    // protected without protect_unaddressed: a task without a recipient stays open to everyone
+    post.initRoot(root, { dialect, protected_agents: ["operator"] });
+    assert.equal(post.openTask(root, { from: "codex-map", title: "Board 2", text: "x", folder: tree }).status, "open");
+    assert.throws(() => post.send(root, { from: "codex-map", to: "operator", subject: "a", text: "b", folder: tree }), { code: "protected_no_codex" });
+    assert.throws(() => post.finishTask(root, task.id, "codex-map", { status: "done", result: "x", folder: tree }), { code: "protected_no_codex" });
+    // on: the same calls are refused
+    post.initRoot(root, { dialect, reserved_names: ["lead"], protect_unaddressed: true });
+    assert.throws(() => post.send(root, { from: "lead", to: "operator", subject: "a", text: "b", folder: worktree }), { code: "token_required" });
+    assert.throws(() => post.openTask(root, { from: "codex-map", title: "Board 3", text: "x", folder: tree }), { code: "protected_no_codex" });
+    assert.throws(() => post.register(root, { name: "lead", kind: "claude", folder: path.join(repo, "moved") }), { code: "reserved_name" });
+    assert.equal(post.register(root, { name: "spare-2", kind: "claude" }).name, "spare-2"); // not reserved: free
+  });
+
+  t("a protected agent's rejection tells the sender what to do", () => {
+    const root = fresh({ protected_agents: ["operator"], protect_unaddressed: true });
+    install(root, "operator", "assistant");
+    const worker = install(root, "worker", "api").token;
+    post.register(root, { name: "codex-map", kind: "codex", folder: path.join(root, "tree") });
+    const made = post.register(root, { name: "made-up", kind: "api" }).token;
+    const message = (call) => {
+      try {
+        call();
+      } catch (rejected) {
+        return rejected.message;
+      }
+      throw new Error("not rejected");
+    };
+    const hints = dialect === "en"
+      ? [/not of kind codex/, /install config/, /AGENT_POST_TOKEN/]
+      : [/Codex türü olmayan/, /kurulum yapılandırmasına/, /AJAN_POSTA_BELIRTEC/];
+    assert.match(message(() => post.send(root, { from: "codex-map", to: "operator", subject: "a", text: "b", folder: path.join(root, "tree") })), hints[0]);
+    assert.match(message(() => post.openTask(root, { from: "made-up", title: "a", text: "b", token: made })), hints[1]);
+    assert.match(message(() => post.send(root, { from: "worker", to: "operator", subject: "a", text: "b" })), hints[2]);
+    assert.equal(post.send(root, { from: "worker", to: "operator", subject: "a", text: "b", token: worker }).verified, "token");
+  });
+
   t("without protected agents in the settings nothing is gated (the default)", () => {
     const root = fresh();
     const tree = path.join(root, "codex-tree");

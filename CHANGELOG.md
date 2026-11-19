@@ -48,6 +48,20 @@ additive, and a 0.1.0 root is read as it is. See "Upgrading from 0.1.0" in the R
   without a recipient.
 - The `--token` flag is rejected (`token_flag`): other processes can read a command line. Use `AGENT_POST_TOKEN` or the
   MCP `token` argument.
+- Reserved names and protected agents are off by default: a root without `reserved_names` or `protected_agents` in its
+  settings behaves as in 0.1.0 for them.
+
+### Changed (breaking)
+
+What a 0.1.0 client may have to change; see "Upgrading from 0.1.0" in the README.
+
+- The `--token` flag is gone: a script that passed it gets `token_flag`. Set `AGENT_POST_TOKEN` instead.
+- In `warn` mode, `status`, `lock` and `unlock` without a folder or token were accepted; now they get
+  `identity_required`. A folderless agent gives its token.
+- A codex-kind agent's `inbox`, `mark-read` and `summary` need its folder or token (`inbox_identity_required`).
+- A folder-bound agent can no longer be used from outside its folder (`identity_mismatch`), and the hook no longer
+  takes a codex agent, or one of several unmarked Claude agents, as a folder's identity.
+- In MCP, `register` no longer binds kinds other than `claude` (and allowed `codex`) to the session folder.
 
 ### Changed
 

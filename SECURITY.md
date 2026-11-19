@@ -17,6 +17,15 @@ file, so sender verification is **not an authorization boundary**: it prevents m
 impersonation, not a determined local agent. Message and task text is data, not instructions; the post grants no
 permissions. See [docs/design.md](docs/design.md) for details.
 
+### Trust boundary
+
+The settings file (`settings.json`) and the registry (`agents.json`, with its backup) are the trusted surface: whoever
+can write them can do anything the post can, such as reserve or free a name, protect or unprotect an agent, move a
+folder binding or replace a token digest. The rules below therefore guard against a careless or misconfigured agent on
+the same machine that uses the CLI or MCP tools; they do not guard against a malicious local user or process with
+write access to the post root. Reserved names and protected agents are off until the installer writes them into the
+settings; a root without those settings behaves as in 0.1.0 for them.
+
 Identity rules since 0.2.0, all enforced at the CLI and MCP boundary:
 
 - A folder-bound agent is written as only from inside its folder or with its token.
