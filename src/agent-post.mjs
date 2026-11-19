@@ -153,7 +153,32 @@ const EN = {
     notRegistered: (field, name) => `${field} is not registered: ${name}`,
     invalidToken: (name) => `The token is not valid for ${name}.`,
     folderBelongs: (candidates, name) => `This folder belongs to ${candidates.join(", ")}; cannot write as ${name}.`,
-    tokenRequired: (name) => `${name} could not be verified from the folder; a token is required (--token or AGENT_POST_TOKEN).`,
+    tokenRequired: (name) =>
+      `${name} could not be verified from the folder; a token is required (AGENT_POST_TOKEN or the MCP token argument).`,
+    reservedRegister: (name) => `${name} is a reserved name; only the installer registers it.`,
+    reservedLocked: (name) => `${name} is a reserved name; only the installer changes its folder and token.`,
+    reservedToken: (name) =>
+      `${name} is a reserved name. If you are not ${name}, register your own name and write with it; ` +
+      `only ${name} itself writes as ${name}, with its own token.`,
+    kindImmutable: (name, kind) => `${name} is registered as ${kind}; the kind does not change (only the installer corrects it).`,
+    codexFolder: (folder) => `An agent of kind codex cannot be bound to an installed Claude agent's folder or inside it: ${folder}`,
+    ownFolderOnly: (name) => `${name} is bound to its own folder; it cannot be written as from outside that folder.`,
+    inboxIdentity: (name) =>
+      `The inbox of ${name} opens only to a caller verified as ${name} (its own folder or the token register returned).`,
+    recipientUnowned: (name) =>
+      `No open session can read the inbox of ${name} (the post process holding its token has ended); a message to it ` +
+      "would never be read. Write to the open session's own name.",
+    identityRequired: (name) =>
+      `${name} could not be verified; status and locks are written only from its own folder or with its token.`,
+    tokenFlag: () =>
+      "A token is never given on the command line (other processes can see it); use the AGENT_POST_TOKEN environment variable.",
+    identityFixed: (me, reason) => `This post server was started as ${me}; ${reason}.`,
+    noReservedSwitch: () => "it cannot switch to a reserved name",
+    sameKindOnly: () => "it can switch only to a name of the same kind",
+    otherSession: (name) => `${name} is another session's registration`,
+    protectedNoCodex: (from, to) => `${from} is of kind codex and cannot reach ${to}.`,
+    protectedNeedsInstall: (from, to) => `${from} was not registered by the installer; only installed agents reach ${to}.`,
+    protectedNeedsToken: (from, to) => `${from} was not verified by its token; only token-verified senders reach ${to}.`,
     folderOutside: (folder) => `A folder binding can only be set to the working folder or one of its parents: ${folder}`,
     registrationLocked: (name) => `${name}'s folder or token can change only from its own folder or with a valid token.`,
     badReplyTo: () => "reply_to is not valid.",
@@ -199,8 +224,9 @@ const EN = {
   locks
   hook <UserPromptSubmit|Stop|SessionStart>       (stdin: Claude Code hook JSON; never fails)
   mcp [--as <name>]                               (stdio MCP server)
-The sender (send, task-open, task-finish) is verified from the working folder; an agent without a folder uses
---token T or the AGENT_POST_TOKEN environment variable (register and register --new-token accept the token too).`,
+The sender (send, task-open, task-claim, task-finish) is verified from the working folder or from the token in the
+AGENT_POST_TOKEN environment variable; status, lock and unlock too, and there an unverified caller is rejected. A
+reserved name is verified only by its token. A token is never given on the command line.`,
   },
 };
 
@@ -290,6 +316,13 @@ const TR_V1 = {
     copy_id: "kimlik",
     warning: "uyari",
     error: "hata",
+    installed: "kurulum",
+    default: "varsayilan",
+    owner_pid: "sahip_pid",
+    corrected: "duzeltilen",
+    reserved_names: "ayrilmis_adlar",
+    protected_agents: "korunan_ajanlar",
+    protect_unaddressed: "adressiz_gorev_korunur",
   },
   values: {
     assistant: "jarvis",
@@ -334,6 +367,20 @@ const TR_V1 = {
     issued: "verildi",
     corrupt_file_from_backup: "bozuk_dosya_yedekten",
     backup_not_written: "yedek_yazilamadi",
+    inbox: "gelenler",
+    mark_read: "okundu",
+    summary: "ozet",
+    reserved_name: "ayrilmis_ad",
+    kind_immutable: "tur_degismez",
+    identity_fixed: "kimlik_sabit",
+    codex_folder_forbidden: "codex_klasoru_yasak",
+    inbox_identity_required: "kutu_kimlik_gerekli",
+    recipient_unowned: "alici_sahipsiz",
+    identity_required: "kimlik_gerekli",
+    protected_no_codex: "korunana_codex_kapali",
+    protected_needs_install: "korunana_kurulum_gerekli",
+    protected_needs_token: "korunana_belirtec_gerekli",
+    folder_binding_removed: "klasor_bagi_kaldirildi",
   },
   commands: {
     register: "kayit",
@@ -413,6 +460,17 @@ const TR_V1 = {
     not_registered: "kimlik_yok",
     unknown_tool: "bilinmeyen_arac",
     unexpected_error: "beklenmeyen_hata",
+    reserved_name: "ayrilmis_ad",
+    kind_immutable: "tur_degismez",
+    identity_fixed: "kimlik_sabit",
+    codex_folder_forbidden: "codex_klasoru_yasak",
+    inbox_identity_required: "kutu_kimlik_gerekli",
+    recipient_unowned: "alici_sahipsiz",
+    identity_required: "kimlik_gerekli",
+    token_flag: "belirtec_bayragi",
+    protected_no_codex: "korunana_codex_kapali",
+    protected_needs_install: "korunana_kurulum_gerekli",
+    protected_needs_token: "korunana_belirtec_gerekli",
   },
   toolDocs: {
     register:
@@ -457,7 +515,31 @@ const TR_V1 = {
     invalidToken: (name) => `Belirteç ${name} için geçerli değil.`,
     folderBelongs: (candidates, name) => `Bu klasör ${candidates.join(", ")} ajanına bağlı; ${name} adına yazılamaz.`,
     tokenRequired: (name) =>
-      `${name} kimliği klasörden doğrulanamadı; belirteç gerekli (--belirtec ya da AJAN_POSTA_BELIRTEC).`,
+      `${name} kimliği klasörden doğrulanamadı; belirteç gerekli (AJAN_POSTA_BELIRTEC ya da MCP belirtec alanı).`,
+    reservedRegister: (name) => `${name} ayrılmış bir ad; yalnız posta kurulumu kaydeder.`,
+    reservedLocked: (name) => `${name} ayrılmış bir ad; klasörünü ve belirtecini yalnız posta kurulumu değiştirir.`,
+    reservedToken: (name) =>
+      `${name} ayrılmış bir ad. ${name} değilsen kayit_ol ile kendi adını al ve onunla yaz; ` +
+      `${name} adına yalnız ${name} kendi belirteciyle yazar.`,
+    kindImmutable: (name, kind) => `${name} kayıtlı ajanın türü ${kind}; tür değişmez (yalnız kurulum düzeltir).`,
+    codexFolder: (folder) => `Codex türündeki ajan bir yöneticinin klasörüne ya da içine bağlanamaz: ${folder}`,
+    ownFolderOnly: (name) => `${name} kendi klasörüne bağlı; o klasörün dışından ${name} adına yazılamaz.`,
+    inboxIdentity: (name) =>
+      `${name} kutusu yalnız ${name} olduğu doğrulanan oturuma açılır (kendi klasörü ya da kayit_ol'un verdiği belirteç).`,
+    recipientUnowned: (name) =>
+      `${name} kutusunu açabilecek oturum kapanmış (belirteci tutan posta süreci yok); bu kutuya yazılan okunmaz. ` +
+      "Açık oturumun kendi adına yazın.",
+    identityRequired: (name) =>
+      `${name} kimliği doğrulanamadı; durum ve kilit yalnız kendi klasöründen ya da belirteçle yazılır.`,
+    tokenFlag: () =>
+      "Belirteç komut satırında verilmez (süreç listesinde görünür); AJAN_POSTA_BELIRTEC ortam değişkenini kullanın.",
+    identityFixed: (me, reason) => `Bu posta sunucusu ${me} kimliğiyle başlatıldı; ${reason}.`,
+    noReservedSwitch: () => "ayrılmış bir ada geçilmez",
+    sameKindOnly: () => "yalnız aynı türden bir ada geçilir",
+    otherSession: (name) => `${name} başka bir oturumun kaydı`,
+    protectedNoCodex: (from, to) => `Codex türündeki ajan (${from}) ${to} ajanına ulaşamaz.`,
+    protectedNeedsInstall: (from, to) => `${from} kurulumca kaydedilmiş bir ajan değil; ${to} ajanına yalnız kurulumun ajanları yazar.`,
+    protectedNeedsToken: (from, to) => `${from} belirteçle doğrulanmadı; ${to} ajanına yalnız belirteçle yazılır.`,
     folderOutside: (folder) => `Klasör bağı yalnız çalışılan klasöre ya da üst klasörlerinden birine kurulur: ${folder}`,
     registrationLocked: (name) =>
       `${name} kaydının klasörü ya da belirteci yalnız kendi klasöründen ya da geçerli belirteçle değişir.`,
@@ -503,8 +585,9 @@ const TR_V1 = {
   kilitler
   kanca <UserPromptSubmit|Stop|SessionStart>      (stdin: Claude Code kanca JSON'u; hiçbir zaman hata vermez)
   mcp [--ben <ad>]                                (stdio MCP sunucusu)
-Gönderen (gonder, gorev-ac, gorev-bitir) çalışma klasöründen doğrulanır; klasörsüz ajan için --belirtec B ya da
-AJAN_POSTA_BELIRTEC ortam değişkeni (kayit ve kayit --yeni-belirtec de belirteci kabul eder).`,
+Gönderen (gonder, gorev-ac, gorev-al, gorev-bitir) çalışma klasöründen ya da AJAN_POSTA_BELIRTEC ortam değişkenindeki
+belirteçle doğrulanır; durum, kilit-al ve kilit-birak da (doğrulanamayan reddedilir); ayrılmış adlar yalnız belirteçle.
+Belirteç komut satırında verilmez.`,
   },
 };
 
@@ -674,15 +757,29 @@ export function fromDisk(root, value) {
   return decode(context(root).d, value);
 }
 
-/** Declares a root's dialect (and optionally the approver named in agent-facing texts) in its settings file. */
-export function initRoot(root, { dialect = "en", approver = undefined } = {}) {
+/** Declares a root's dialect in its settings file, and optionally the approver named in agent-facing texts, the
+ * reserved names (`reserved_names`), the protected agents (`protected_agents`) and whether tasks without a recipient
+ * are protected too (`protect_unaddressed`). An install step; options left undefined keep their stored value. */
+export function initRoot(
+  root,
+  { dialect = "en", approver = undefined, reserved_names = undefined, protected_agents = undefined, protect_unaddressed = undefined } = {},
+) {
   if (!(dialect in DIALECTS)) throw new PostError("invalid_field", EN.text.choice("dialect", Object.keys(DIALECTS)));
   const ctx = { root: path.resolve(root), d: DIALECTS[dialect] };
+  for (const [field, names] of [["reserved_names", reserved_names], ["protected_agents", protected_agents]]) {
+    if (names !== undefined && (!Array.isArray(names) || names.length > 100)) {
+      throw new PostError("invalid_field", `${field} must be a list of at most 100 agent names.`);
+    }
+    for (const name of names ?? []) checkName(ctx, name, field);
+  }
+  const given = Object.entries({ approver, reserved_names, protected_agents, protect_unaddressed })
+    .filter(([, value]) => value !== undefined)
+    .map(([field, value]) => [field, field === "protect_unaddressed" ? Boolean(value) : value]);
   dir(ctx.root);
   const file = path.join(ctx.root, ctx.d.files.settings);
   withFileLock(ctx, file, () => {
     const current = readJson(ctx, file, {});
-    writeJson(file, { ...current, dialect, ...(approver !== undefined ? encode(ctx.d, { approver }) : {}) });
+    writeJson(file, { ...current, dialect, ...encode(ctx.d, Object.fromEntries(given)) });
   });
   return { root: ctx.root, dialect };
 }
@@ -1180,6 +1277,24 @@ function approver(ctx) {
   return typeof value === "string" && value.trim() && value.length <= 80 ? value : ctx.d.defaultApprover;
 }
 
+function nameList(value) {
+  return Array.isArray(value) ? value.filter((name) => typeof name === "string") : [];
+}
+
+/** Reserved names (settings › `reserved_names`, written by the installer): only the installer registers them and
+ * changes their folder and token, and acting as one needs its token in every mode. */
+export function reservedNames(root) {
+  return nameList(readSettings(context(root)).reserved_names);
+}
+
+/** Protected agents (settings › `protected_agents`; for example an assistant that acts in the physical world): only
+ * agents registered by the installer, verified by their token and not of kind codex reach them (`protectionGate`). */
+export function protectedAgents(root) {
+  return nameList(readSettings(context(root)).protected_agents);
+}
+
+const TOKEN_OPERATIONS = new Set(["send", "task_open", "task_claim", "task_finish", "verify", "status", "lock", "unlock"]);
+
 function tokenDigest(token) {
   return crypto.createHash("sha256").update(token, "utf8").digest("hex");
 }
@@ -1241,6 +1356,11 @@ export function issueToken(root, name) {
  *   without a folder `identity_mismatch` in `strict` mode, `none` with a warning in `warn` mode.
  * - If the folder cannot be verified (unknown or bound to no agent): `none` and `identity_unverified` in the log in
  *   `warn` mode, `token_required` in `strict` mode.
+ * - A folder-bound agent cannot be written as from outside its folder when the caller's folder is known, even if that
+ *   folder belongs to no agent (`identity_mismatch`): two sessions cannot take each other's name.
+ * - Acting as a reserved name (`reservedNames`; send, task_open, task_claim, task_finish, verify, status, lock, unlock)
+ *   needs its token in every mode (`token_required`): a folder cannot tell its owner from another session working in
+ *   the same folder. Registering and reading the inbox keep the folder. A valid token passes from any folder.
  * - `quiet`: nothing is logged (the `verify` query; status checks must not fill the log). */
 export function verifySender(root, name, { folder = null, token = null, operation = "send", quiet = false } = {}) {
   const ctx = context(root);
@@ -1253,6 +1373,9 @@ export function verifySender(root, name, { folder = null, token = null, operatio
     if (tokenMatches(agent, token)) return "token";
     reject("invalid_token", fail(ctx, "invalid_token", "invalidToken", name));
   }
+  if (TOKEN_OPERATIONS.has(operation) && reservedNames(ctx).includes(name)) {
+    reject("token_required", fail(ctx, "token_required", "reservedToken", name));
+  }
   const mode = tokenMode(ctx);
   const candidates = folderCandidates(ctx, folder);
   if (candidates.includes(name)) return "folder";
@@ -1261,6 +1384,9 @@ export function verifySender(root, name, { folder = null, token = null, operatio
       folder: normalArea(ctx, folder),
       candidates,
     });
+  }
+  if (folder && agent.folder) {
+    reject("identity_mismatch", fail(ctx, "identity_mismatch", "ownFolderOnly", name), { folder: normalArea(ctx, folder) });
   }
   if (mode === "strict") reject("token_required", fail(ctx, "token_required", "tokenRequired", name));
   if (!quiet) logEvent(ctx, { event: "identity_unverified", agent: name, operation, ...(candidates.length ? { candidates } : {}) });
@@ -1273,10 +1399,30 @@ export function verifySender(root, name, { folder = null, token = null, operatio
  * - A registered agent's folder changes only when `folder` is given explicitly; `new_token` renews the token. Both
  *   need authority: a valid `token`, or the caller's folder (`caller_folder`) inside the agent's registered folder;
  *   otherwise `identity_mismatch`.
- * - If the caller's folder is known, an explicit folder must contain it: no folder binding is set elsewhere. */
+ * - If the caller's folder is known, an explicit folder must contain it: no folder binding is set elsewhere.
+ * - The session's folder (`default_folder`) is stored for a new agent of kind `claude`, and for kind `codex` only if
+ *   it does not overlap an installed Claude agent's folder; other kinds stay without a folder. Kind `codex` cannot be
+ *   bound to such a folder explicitly either (`codex_folder_forbidden`). A registered agent's kind never changes
+ *   (`kind_immutable`). A reserved name cannot be taken as a new registration, and its folder and token change only
+ *   through the installer (`reserved_name`); registering again as itself is allowed.
+ * - The agent is marked seen only when `seenFrom` allows it (a reserved name: with its token or from exactly its folder).
+ * - `install` (the installer only): no authority checks; kind, folder (null: none) and the `default` mark are written
+ *   as given and the record becomes `installed: true`; the installer never marks an agent seen. The return lists the
+ *   fields it changed in `corrected`. */
 export function register(
   root,
-  { name, kind, account = null, folder = null, default_folder = null, caller_folder = null, token = null, new_token = false },
+  {
+    name,
+    kind,
+    account = null,
+    folder = null,
+    default_folder = null,
+    caller_folder = null,
+    token = null,
+    new_token = false,
+    install = false,
+    default: isDefault = false,
+  },
 ) {
   const ctx = context(root);
   checkName(ctx, name);
@@ -1285,37 +1431,195 @@ export function register(
     checkText(ctx, account, "account", 80);
     checkSecret(ctx, account);
   }
-  const reject = (textId) => {
-    logEvent(ctx, { event: "identity_mismatch", agent: name, operation: "register" });
-    throw fail(ctx, "identity_mismatch", textId, textId === "folderOutside" ? folder : name);
+  const reject = (textId, code = "identity_mismatch", ...args) => {
+    logEvent(ctx, { event: code, agent: name, operation: "register" });
+    throw fail(ctx, code, textId, ...(args.length ? args : [textId === "folderOutside" ? folder : name]));
   };
-  if (folder && caller_folder && containedBy(folderForms(ctx, folder), folderForms(ctx, caller_folder)) < 0) reject("folderOutside");
   const existing = readRegistry(ctx).agents[name];
-  const folderChanges = Boolean(existing && folder && (!existing.folder || normalArea(ctx, folder) !== normalArea(ctx, existing.folder)));
-  if (folderChanges || (existing && new_token)) {
-    const authorized =
-      tokenMatches(existing, token) ||
-      Boolean(existing.folder && caller_folder && containedBy(folderForms(ctx, existing.folder), folderForms(ctx, caller_folder)) >= 0);
-    if (!authorized) reject("registrationLocked");
+  if (!install) {
+    if (folder && caller_folder && containedBy(folderForms(ctx, folder), folderForms(ctx, caller_folder)) < 0) reject("folderOutside");
+    const reserved = reservedNames(ctx).includes(name);
+    if (reserved && !existing) reject("reservedRegister", "reserved_name");
+    if (existing && existing.kind !== kind) reject("kindImmutable", "kind_immutable", name, local(ctx.d.values, existing.kind));
+    const folderChanges = Boolean(existing && folder && (!existing.folder || normalArea(ctx, folder) !== normalArea(ctx, existing.folder)));
+    if (reserved && (folderChanges || new_token)) reject("reservedLocked", "reserved_name");
+    if (folderChanges || (existing && new_token)) {
+      const authorized =
+        tokenMatches(existing, token) ||
+        Boolean(existing.folder && caller_folder && containedBy(folderForms(ctx, existing.folder), folderForms(ctx, caller_folder)) >= 0);
+      if (!authorized) reject("registrationLocked");
+    }
+    if (kind === "codex" && folder && codexFolderForbidden(ctx, folder)) reject("codexFolder", "codex_folder_forbidden", folder);
   }
+  // the session's folder by itself: for kind claude; for kind codex only away from an installed Claude agent's folder
+  // (a Codex post server often starts in the project root, which may be that agent's folder)
+  const autoFolder = Boolean(
+    default_folder && (kind === "claude" || (kind === "codex" && !codexFolderForbidden(ctx, default_folder))),
+  );
+  const seen = !install && seenFrom(ctx, name, { folder: caller_folder, token });
   const time = now();
   let issued = null;
+  let corrected = [];
   const agent = updateAgent(ctx, name, (old) => {
     if (!old || new_token) issued = newToken(ctx);
-    return {
+    const kept = old ? (old.folder ?? null) : autoFolder ? path.resolve(default_folder) : null;
+    const fresh = {
+      ...(old ?? {}),
       name,
       kind,
       account: account ?? old?.account ?? null,
-      folder: folder ? path.resolve(folder) : old ? (old.folder ?? null) : default_folder ? path.resolve(default_folder) : null,
+      folder: install ? (folder ? path.resolve(folder) : null) : folder ? path.resolve(folder) : kept,
       registered_at: old?.registered_at ?? time,
-      last_seen: time,
+      last_seen: seen ? time : (old?.last_seen ?? null),
       status: old?.status ?? "idle",
       quota_note: old?.quota_note ?? null,
       token_digest: issued ? tokenDigest(issued) : (old?.token_digest ?? null),
     };
+    delete fresh.default;
+    delete fresh.installed;
+    if (install ? isDefault : old?.default) fresh.default = true;
+    if (install || old?.installed) fresh.installed = true;
+    if (old) corrected = ["kind", "folder", "default", "installed"].filter((field) => (old[field] ?? null) !== (fresh[field] ?? null));
+    return fresh;
   });
-  logEvent(ctx, { event: "register", agent: name, kind, ...(issued ? { token: "issued" } : {}) });
-  return { ...visible(agent), ...(issued ? { token: issued } : {}) };
+  logEvent(ctx, {
+    event: "register",
+    agent: name,
+    kind,
+    ...(issued ? { token: "issued" } : {}),
+    ...(install ? { installed: true } : {}),
+    ...(corrected.length ? { corrected } : {}),
+  });
+  return { ...visible(agent), ...(issued ? { token: issued } : {}), ...(install ? { corrected } : {}) };
+}
+
+/** Does an operation that comes with a folder (hook, inbox read, register) mark the agent seen. A reserved name is
+ * seen only with its valid token or from exactly its own folder, not from a worktree inside it: otherwise another
+ * session's hook would show a closed owner as alive and a router would hand it work. Other names are always seen. */
+export function seenFrom(root, name, { folder = null, token = null } = {}) {
+  const ctx = context(root);
+  if (!reservedNames(ctx).includes(name)) return true;
+  const agent = readRegistry(ctx).agents[name];
+  if (!agent) return false;
+  if (token !== null && token !== undefined && tokenMatches(agent, token)) return true;
+  return Boolean(folder && agent.folder && realFolder(ctx, folder) === realFolder(ctx, agent.folder));
+}
+
+/** A folder's real form for comparisons that must not be fooled: links (junctions) and short (8.3) names resolved,
+ * `..` and separators normalized, lower case on Windows; a part that does not exist yet is appended to the real path
+ * of its nearest existing parent. */
+function realFolder(ctx, folder) {
+  let full = path.resolve(checkText(ctx, folder, "area", 1024));
+  const rest = [];
+  for (;;) {
+    try {
+      full = fs.realpathSync.native(full);
+      break;
+    } catch {
+      const parent = path.dirname(full);
+      if (parent === full) break;
+      rest.unshift(path.basename(full));
+      full = parent;
+    }
+  }
+  const result = path.join(full, ...rest).replace(/[\\/]+$/, "");
+  return process.platform === "win32" ? result.toLowerCase() : result;
+}
+
+/** Can an agent of kind codex be bound to `folder`: not if it equals, contains or lies inside the folder of an
+ * installed Claude agent (that agent's repository and the worktrees inside it). A folder elsewhere with the same name
+ * is free. */
+export function codexFolderForbidden(root, folder) {
+  const ctx = context(root);
+  const target = realFolder(ctx, folder);
+  return Object.values(readRegistry(ctx).agents)
+    .filter((agent) => agent.installed && agent.kind === "claude" && agent.folder)
+    .some((agent) => areasOverlap(target, realFolder(ctx, agent.folder)));
+}
+
+/** Removes an agent's folder binding (the installer, for a codex record bound to an installed Claude agent's folder). */
+export function unbindFolder(root, name) {
+  const ctx = context(root);
+  requireAgent(ctx, name);
+  const agent = updateAgent(ctx, name, (old) => ({ ...old, folder: null }));
+  logEvent(ctx, { event: "folder_binding_removed", agent: name });
+  return visible(agent);
+}
+
+/** Records the process that can open the agent's inbox (the post process of the session that registered it and holds
+ * its token). */
+export function setOwner(root, name, pid) {
+  const ctx = context(root);
+  return updateAgent(ctx, name, (old) => (old ? { ...old, owner_pid: pid } : null));
+}
+
+/** Is the recorded owner process alive (`process.kill(pid, 0)` does not touch the process; access denied: alive). */
+function ownerAlive(agent) {
+  const pid = agent?.owner_pid;
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
+/** A folderless codex agent registered by a session can be read only by that session's post process (the token lives
+ * there). When that process is gone, nothing sent to it is ever read: the sender gets `recipient_unowned` instead of
+ * a silent loss. Agents never owned by a session (a persistent token in the app's configuration) and agents bound to
+ * a folder (a new session opens them again) are not checked. */
+function checkRecipient(ctx, to) {
+  const agent = readRegistry(ctx).agents[to];
+  if (!agent || agent.kind !== "codex" || agent.folder || agent.owner_pid === undefined || ownerAlive(agent)) return;
+  logEvent(ctx, { event: "recipient_unowned", agent: to });
+  throw fail(ctx, "recipient_unowned", "recipientUnowned", to);
+}
+
+/** The inbox of a codex-kind agent opens only to a caller verified as that agent (folder or token): a session without
+ * the token cannot read or mark another Codex session's inbox. */
+function checkInboxAccess(ctx, me, { folder = null, token = null, operation }) {
+  if (requireAgent(ctx, me).kind !== "codex") return;
+  if (verifySender(ctx, me, { folder, token, operation, quiet: true }) !== "none") return;
+  logEvent(ctx, { event: "inbox_identity_required", agent: me, operation });
+  throw fail(ctx, "inbox_identity_required", "inboxIdentity", me);
+}
+
+/** Status and locks are written only by a caller verified as the agent (`verifySender`; a reserved name by its
+ * token). An unverified caller (`none`) is rejected in every mode (`identity_required`): a status write marks the
+ * agent seen and changes a router's choice, a lock stops someone else's work, and neither leaves a `verified` mark a
+ * reader could weigh. One log line per rejection. */
+function requireVerified(ctx, me, { folder = null, token = null, operation }) {
+  requireAgent(ctx, me);
+  let verified;
+  try {
+    verified = verifySender(ctx, me, { folder, token, operation, quiet: true });
+  } catch (error) {
+    if (error instanceof PostError) logEvent(ctx, { event: error.code, agent: me, operation });
+    throw error;
+  }
+  if (verified !== "none") return;
+  logEvent(ctx, { event: "identity_required", agent: me, operation });
+  throw fail(ctx, "identity_required", "identityRequired", me);
+}
+
+/** Only agents registered by the installer, verified by their token and not of kind codex reach a protected agent
+ * (`protectedAgents`): messages to it, tasks addressed to it (and tasks without a recipient when
+ * `protect_unaddressed` is set, since a protected router picks them up), and claiming or finishing a task it opened.
+ * A rejection is a clear error for the sender and a log line without the text. */
+function protectionGate(ctx, from, target, operation, verified) {
+  const agent = readRegistry(ctx).agents[from];
+  const [code, textId] =
+    agent?.kind === "codex"
+      ? ["protected_no_codex", "protectedNoCodex"]
+      : !agent?.installed
+        ? ["protected_needs_install", "protectedNeedsInstall"]
+        : verified !== "token"
+          ? ["protected_needs_token", "protectedNeedsToken"]
+          : [null, null];
+  if (!code) return;
+  logEvent(ctx, { event: code, agent: from, operation });
+  throw fail(ctx, code, textId, from, target);
 }
 
 export function touch(root, name) {
@@ -1359,9 +1663,16 @@ export function folderCandidates(root, folder) {
   return candidates;
 }
 
-/** The agent of a working folder: the first derived agent (longest prefix match). */
+/** The default identity of a working folder (hook, MCP without `--as`): among the derived agents only those of kind
+ * `claude`; the only one, or else the one the installer marked `default`, or else none (the session names itself with
+ * `register`). Picking the first registered agent made Claude sessions take a Codex identity bound to the same folder. */
 export function folderAgent(root, folder) {
-  return folderCandidates(root, folder)[0] ?? null;
+  const ctx = context(root);
+  const registry = readRegistry(ctx).agents;
+  const claude = folderCandidates(ctx, folder).filter((name) => registry[name]?.kind === "claude");
+  if (claude.length === 1) return claude[0];
+  const marked = claude.filter((name) => registry[name].default === true);
+  return marked.length === 1 ? marked[0] : null;
 }
 
 // --- Messages ------------------------------------------------------------------------------------------------
@@ -1386,6 +1697,8 @@ function writeMessage(ctx, { from, to, subject, text, kind = "message", attachme
   checkSecret(ctx, subject, text);
   const paths = checkAttachments(ctx, attachments);
   const verified = typeof verify === "function" ? verify() : verify;
+  checkRecipient(ctx, to);
+  if (protectedAgents(ctx).includes(to)) protectionGate(ctx, from, to, kind, verified);
   const record = {
     id: newId(ctx.d.ids.message),
     time: now(),
@@ -1410,19 +1723,19 @@ function readIds(ctx, me) {
 }
 
 /** The inbox. A message without a verification field (written before sender verification) or with an unknown
- * value reads as `verified: none`. */
-export function inbox(root, me, { unread = false, limit = 50 } = {}) {
+ * value reads as `verified: none`. `seen: false` leaves the agent's last-seen time as it is (see `seenFrom`). */
+export function inbox(root, me, { unread = false, limit = 50, seen = true } = {}) {
   const ctx = context(root);
   requireAgent(ctx, me);
-  const seen = readIds(ctx, me);
+  const marked = readIds(ctx, me);
   const list = readRecords(ctx, path.join(ctx.root, ctx.d.files.inbox, `${me}.jsonl`))
     .map((record) => ({
       ...record,
       verified: VERIFICATIONS.includes(record.verified) ? record.verified : "none",
-      read: seen.has(record.id),
+      read: marked.has(record.id),
     }))
     .filter((record) => !unread || !record.read);
-  touch(ctx, me);
+  if (seen) touch(ctx, me);
   return list.slice(-Math.max(1, Math.min(limit, 500)));
 }
 
@@ -1555,6 +1868,14 @@ export function openTask(root, { from, title, text, areas = [], to = null, kind 
   if (!Array.isArray(areas) || areas.length > 20) throw fail(ctx, "invalid_field", "taskAreas");
   const normalAreas = [...new Set(areas.map((area) => normalArea(ctx, area)))];
   const verified = verifySender(ctx, from, { folder, token, operation: "task_open" });
+  if (to !== null) checkRecipient(ctx, to); // before the task is written: no task for an inbox nobody reads
+  const guarded = protectedAgents(ctx);
+  if (!guarded.includes(from)) {
+    if (to !== null && guarded.includes(to)) protectionGate(ctx, from, to, "task_open", verified);
+    if (to === null && guarded.length && readSettings(ctx).protect_unaddressed === true) {
+      protectionGate(ctx, from, guarded.join(", "), "task_open", verified);
+    }
+  }
   const time = now();
   const task = {
     v: FORMAT_VERSION,
@@ -1600,11 +1921,14 @@ export function tasks(root, { status = null } = {}) {
 }
 
 /** Claims an open task and locks its areas. A retry by the agent that already claimed it leaves the record as it
- * is and renews the locks. If the task cannot be written, the locks taken by this call are released. */
-export function claimTask(root, id, me) {
+ * is and renews the locks. If the task cannot be written, the locks taken by this call are released. The claimer is
+ * verified like `send` (`folder`, `token`), on every task: nobody claims a task in another agent's name. A task a
+ * protected agent opened passes the protection gate too: its result goes to that agent. */
+export function claimTask(root, id, me, { folder = null, token = null } = {}) {
   const ctx = context(root);
   requireAgent(ctx, me);
   const file = taskFile(ctx, id);
+  const verified = verifySender(ctx, me, { folder, token, operation: "task_claim" });
   return withFileLock(ctx, file, () => {
     const task = readTask(ctx, id);
     if (task.status === "claimed" && task.claimed_by === me) {
@@ -1615,6 +1939,7 @@ export function claimTask(root, id, me) {
       throw fail(ctx, "task_not_claimable", "taskState", local(ctx.d.values, task.status), task.claimed_by);
     }
     if (task.to && task.to !== me) throw fail(ctx, "task_not_claimable", "taskFor", task.to);
+    if (protectedAgents(ctx).includes(task.from)) protectionGate(ctx, me, task.from, "task_claim", verified);
     if (task.areas.length) lock(ctx, me, task.areas, { task: id });
     const time = now();
     Object.assign(task, { status: "claimed", claimed_by: me, claimed_at: time });
@@ -1661,6 +1986,8 @@ export function finishTask(root, id, me, { status, result, folder = null, token 
   let again = false;
   const task = withFileLock(ctx, file, () => {
     const task = readTask(ctx, id);
+    // before the task changes: the result goes to the protected opener
+    if (protectedAgents(ctx).includes(task.from)) protectionGate(ctx, me, task.from, "task_finish", verified);
     const own = task.claimed_by === me;
     if (own && TASK_ENDS.includes(task.status) && task.status === status && task.result === result) {
       again = true;
@@ -1689,9 +2016,9 @@ export function finishTask(root, id, me, { status, result, folder = null, token 
 // --- Hook summary --------------------------------------------------------------------------------------------
 
 /** Short summary of unread messages, or an empty string. The hook adds it to the context. */
-export function summary(root, me, { limit = 5 } = {}) {
+export function summary(root, me, { limit = 5, seen = true } = {}) {
   const ctx = context(root);
-  const list = inbox(ctx, me, { unread: true, limit: 500 });
+  const list = inbox(ctx, me, { unread: true, limit: 500, seen });
   if (!list.length) return "";
   const lines = list.slice(-limit).map((m) => `- [${m.id}] ${local(ctx.d.values, m.kind)} ${m.from}: ${m.subject}`);
   return [ctx.d.text.summaryHead(me, list.length), ...lines, ctx.d.text.summaryFoot(approver(ctx))].join("\n");
@@ -1731,11 +2058,10 @@ function list(value) {
   return value === undefined ? [] : [].concat(value);
 }
 
-/** The `--token` flag; otherwise the token from the environment. */
+/** The token from the environment. A `--token` flag is rejected: other processes can read a command line. */
 function tokenArg(ctx, flags, fallback) {
-  if (flags.token === undefined) return fallback || null;
-  if (typeof flags.token !== "string") throw fail(ctx, "missing_argument", "needsValue", local(ctx.d.flags, "token"));
-  return flags.token;
+  if (flags.token !== undefined) throw fail(ctx, "token_flag", "tokenFlag");
+  return fallback || null;
 }
 
 /** Runs one command in the root's dialect and returns English results (see `cli` for the outside form). `caller`
@@ -1763,6 +2089,7 @@ export function runCommand(argv, root, caller = {}) {
     case "agents":
       return agentList(ctx);
     case "status":
+      requireVerified(ctx, positional[0], { ...identity(), operation: "status" });
       return setStatus(ctx, positional[0], { status: value(positional[1]), quota_note: flags["quota-note"] });
     case "send":
       return send(ctx, {
@@ -1777,14 +2104,21 @@ export function runCommand(argv, root, caller = {}) {
         ...identity(),
       });
     case "inbox": {
-      const result = inbox(ctx, positional[0], { unread: Boolean(flags.unread), limit: Number(flags.limit ?? 50) });
+      checkInboxAccess(ctx, positional[0], { ...identity(), operation: "inbox" });
+      const result = inbox(ctx, positional[0], {
+        unread: Boolean(flags.unread),
+        limit: Number(flags.limit ?? 50),
+        seen: seenFrom(ctx, positional[0], identity()),
+      });
       if (flags["mark-read"]) markRead(ctx, positional[0], result.map((m) => m.id));
       return result;
     }
     case "mark-read":
+      checkInboxAccess(ctx, positional[0], { ...identity(), operation: "mark_read" });
       return markRead(ctx, positional[0], positional.slice(1));
     case "summary":
-      return summary(ctx, positional[0]);
+      checkInboxAccess(ctx, positional[0], { ...identity(), operation: "summary" });
+      return summary(ctx, positional[0], { seen: seenFrom(ctx, positional[0], identity()) });
     case "task-open":
       return openTask(ctx, {
         from: flags.from,
@@ -1796,7 +2130,7 @@ export function runCommand(argv, root, caller = {}) {
         ...identity(),
       });
     case "task-claim":
-      return claimTask(ctx, positional[0], positional[1]);
+      return claimTask(ctx, positional[0], positional[1], identity());
     case "task-finish":
       return finishTask(ctx, positional[0], positional[1], {
         status: value(flags.status),
@@ -1810,8 +2144,10 @@ export function runCommand(argv, root, caller = {}) {
     case "tasks":
       return tasks(ctx, { status: value(flags.status ?? null) });
     case "lock":
+      requireVerified(ctx, positional[0], { ...identity(), operation: "lock" });
       return lock(ctx, positional[0], list(flags.area), { task: flags.task ?? null });
     case "unlock":
+      requireVerified(ctx, positional[0], { ...identity(), operation: "unlock" });
       return unlock(ctx, positional[0], { areas: flags.area ? list(flags.area) : null, task: flags.task ?? null });
     case "locks":
       return locks(ctx);
@@ -1840,13 +2176,14 @@ export function hook(eventName, input, root) {
     const data = JSON.parse((input || "{}").replace(/^\uFEFF/, ""));
     const me = folderAgent(ctx, data.cwd);
     if (!me) return "";
+    const seen = seenFrom(ctx, me, { folder: data.cwd });
     if (eventName === "UserPromptSubmit") {
       // only the hook whose output reaches the model takes the backup warning; Stop and SessionStart leave it
-      const text = summary(ctx, me);
+      const text = summary(ctx, me, { seen });
       const warning = takeBackupWarning(ctx);
       return warning ? [text, ctx.d.text.hookWarning(warning)].filter(Boolean).join("\n") : text;
     }
-    touch(ctx, me);
+    if (seen) touch(ctx, me);
     return "";
   } catch {
     return "";
@@ -1935,9 +2272,30 @@ export function mcpHandle(request, state, root) {
 }
 
 /** One MCP tool with English names. Registering as a registered agent (`register`) verifies the identity like
- * `send`: a session in another agent's folder cannot become that agent. */
+ * `send`: a session in another agent's folder cannot become that agent. A server started with `--as` keeps its kind
+ * (`state.fixed`): `register` may switch only to a name of the same kind that is not reserved and not someone else's
+ * registration (`identity_fixed`). A codex-kind inbox (`inbox`, `mark_read`) opens only to a verified session. */
 function callTool(ctx, name, a, state, outsideName) {
   if (name === "register") {
+    // a fixed server switches only to its own kind of name (one Codex session becomes `codex-review`, not someone
+    // else); a registered name only with its token or from inside its folder
+    if (state.fixed && a.name !== state.me) {
+      const registry = readRegistry(ctx).agents;
+      const target = registry[a.name];
+      const reason = reservedNames(ctx).includes(a.name)
+        ? ctx.d.text.noReservedSwitch()
+        : (registry[state.me]?.kind ?? null) !== a.kind
+          ? ctx.d.text.sameKindOnly()
+          : target &&
+              !tokenMatches(target, a.token) &&
+              !(target.folder && state.folder && containedBy(folderForms(ctx, target.folder), folderForms(ctx, state.folder)) >= 0)
+            ? ctx.d.text.otherSession(a.name)
+            : null;
+      if (reason) {
+        logEvent(ctx, { event: "identity_fixed", agent: state.me, operation: "register" });
+        throw fail(ctx, "identity_fixed", "identityFixed", state.me, reason);
+      }
+    }
     // the session's token is valid only for re-registering the same identity
     const token = a.token ?? (a.name === state.me ? (state.token ?? null) : null);
     if (typeof a.name === "string" && readRegistry(ctx).agents[a.name]) {
@@ -1955,6 +2313,15 @@ function callTool(ctx, name, a, state, outsideName) {
     });
     state.me = agent.name;
     state.token = agent.token ?? token;
+    // a codex session whose token lives only in this process owns the inbox while the process runs (`checkRecipient`);
+    // a token from the environment is a persistent configuration, not a session
+    if (
+      agent.kind === "codex" &&
+      !(state.envToken && state.token === state.envToken) &&
+      verifySender(ctx, agent.name, { folder: state.folder, token: state.token, operation: "register", quiet: true }) !== "none"
+    ) {
+      setOwner(ctx, agent.name, process.pid);
+    }
     return agent;
   }
   if (name === "agents") return agentList(ctx);
@@ -1966,23 +2333,28 @@ function callTool(ctx, name, a, state, outsideName) {
     case "send":
       return send(ctx, { from: me, to: a.to, subject: a.subject, text: a.text, kind: a.kind ?? "message", attachments: a.attachments ?? [], reply_to: a.reply_to ?? null, task_id: a.task_id ?? null, ...identity });
     case "inbox": {
-      const result = inbox(ctx, me, { unread: Boolean(a.unread), limit: a.limit ?? 50 });
+      checkInboxAccess(ctx, me, { ...identity, operation: "inbox" });
+      const result = inbox(ctx, me, { unread: Boolean(a.unread), limit: a.limit ?? 50, seen: seenFrom(ctx, me, identity) });
       if (a.mark_read) markRead(ctx, me, result.map((m) => m.id));
       return result;
     }
     case "mark_read":
+      checkInboxAccess(ctx, me, { ...identity, operation: "mark_read" });
       return markRead(ctx, me, a.ids);
     case "set_status":
+      requireVerified(ctx, me, { ...identity, operation: "status" });
       return setStatus(ctx, me, { status: a.status, quota_note: a.quota_note });
     case "task_open":
       return openTask(ctx, { from: me, title: a.title, text: a.text, areas: a.areas ?? [], to: a.to ?? null, kind: a.kind ?? "other", ...identity });
     case "task_claim":
-      return claimTask(ctx, a.id, me);
+      return claimTask(ctx, a.id, me, identity);
     case "task_finish":
       return finishTask(ctx, a.id, me, { status: a.status, result: a.result, ...identity });
     case "lock":
+      requireVerified(ctx, me, { ...identity, operation: "lock" });
       return lock(ctx, me, a.areas, { task: a.task ?? null });
     case "unlock":
+      requireVerified(ctx, me, { ...identity, operation: "unlock" });
       return unlock(ctx, me, { areas: a.areas ?? null, task: a.task ?? null });
     default:
       throw fail(ctx, "unknown_tool", "unknownTool", outsideName);
@@ -1990,8 +2362,9 @@ function callTool(ctx, name, a, state, outsideName) {
 }
 
 function mcpServer(ctx, me) {
-  // The environment token belongs only to the identity given at start (`--as`).
-  const state = { me: me ?? null, folder: process.cwd(), token: me ? process.env[ctx.d.env.token] || null : null };
+  // The environment token belongs only to the identity given at start (`--as`); that identity's kind is fixed.
+  const envToken = me ? process.env[ctx.d.env.token] || null : null;
+  const state = { me: me ?? null, fixed: Boolean(me), folder: process.cwd(), token: envToken, envToken };
   const lines = readline.createInterface({ input: process.stdin });
   lines.on("line", (line) => {
     if (!line.trim()) return;

@@ -76,13 +76,14 @@ test("tr-v1 contract: commands, flags, output fields, error codes and environmen
   const registered = cli(elsewhere, ["kayit", "asistan", ASSISTANT]);
   assert.match(registered.belirtec, /^ajp_[A-Za-z0-9_-]{32}$/);
   cli(claudeFolder, ["kayit", "claude-a", "claude", "--klasor", claudeFolder]);
-  cli(elsewhere, ["kayit", "codex", "codex"]);
+  const codex = cli(elsewhere, ["kayit", "codex", "codex"]);
   assert.ok(fs.existsSync(path.join(root, "ajanlar.json")));
   assert.equal(post.dialectOf(root), "tr-v1");
 
   const agents = cli(elsewhere, ["ajanlar"]);
   assert.equal(agents.asistan.tur, ASSISTANT);
-  cli(elsewhere, ["durum", "codex", "kota_dolu"]);
+  // since 0.2.0 a status write needs a verified identity in every mode: the folderless agent gives its token
+  cli(elsewhere, ["durum", "codex", "kota_dolu"], { token: codex.belirtec });
   const verify = cli(elsewhere, ["dogrula", "--kimden", "asistan"], { token: registered.belirtec });
   assert.deepEqual(verify, { ajan: "asistan", dogrulandi: "belirtec", kip: "uyari" });
 
@@ -205,11 +206,11 @@ test("tr-v1 contract: status, kind, verification and mode values and four more e
   fs.mkdirSync(root, { recursive: true });
 
   ok(folder, ["kayit", "claude-a", "claude", "--klasor", folder]);
-  ok(elsewhere, ["kayit", "codex-a", "codex"]);
+  const codexToken = ok(elsewhere, ["kayit", "codex-a", "codex"]).belirtec;
   ok(elsewhere, ["kayit", "api-a", "api"]);
   const token = ok(elsewhere, ["kayit", "asistan", ASSISTANT]).belirtec;
   for (const agent of Object.values(ok(elsewhere, ["ajanlar"]))) seen.agentKinds.add(agent.tur);
-  for (const state of VALUES.agentStates) seen.agentStates.add(ok(elsewhere, ["durum", "codex-a", state]).durum);
+  for (const state of VALUES.agentStates) seen.agentStates.add(ok(elsewhere, ["durum", "codex-a", state], codexToken).durum);
 
   const open = (kind, extra = []) => ok(elsewhere, ["gorev-ac", "--kimden", "asistan", "--baslik", kind, "--metin", "x", "--tur", kind, ...extra], token);
   const tasks = Object.fromEntries(VALUES.taskKinds.map((kind) => [kind, open(kind)]));
@@ -228,14 +229,17 @@ test("tr-v1 contract: status, kind, verification and mode values and four more e
   seen.verifications.add(ok(folder, ["gonder", "codex-a", "--kimden", "claude-a", "--konu", "a", "--metin", "b"]).dogrulandi);
   seen.verifications.add(ok(elsewhere, ["gonder", "codex-a", "--kimden", "asistan", "--konu", "a", "--metin", "b", "--tur", "cevap"], token).dogrulandi);
   seen.verifications.add(ok(elsewhere, ["gonder", "codex-a", "--kimden", "api-a", "--konu", "a", "--metin", "b"]).dogrulandi);
-  for (const box of ["codex-a", "asistan"]) for (const message of ok(elsewhere, ["gelenler", box])) seen.messageKinds.add(message.tur);
+  // a codex-kind inbox opens only to its verified owner (0.2.0)
+  for (const [box, owner] of [["codex-a", codexToken], ["asistan", undefined]]) {
+    for (const message of ok(elsewhere, ["gelenler", box], owner)) seen.messageKinds.add(message.tur);
+  }
   seen.modes.add(ok(elsewhere, ["dogrula", "--kimden", "asistan"], token).kip);
   post.setTokenMode(root, "strict");
   seen.modes.add(ok(elsewhere, ["dogrula", "--kimden", "asistan"], token).kip);
 
   for (const [name, values] of Object.entries(VALUES)) assert.deepEqual([...seen[name]].sort(), [...values].sort(), name);
   const codes = [
-    run(elsewhere, ["durum", "codex-a", "uyuyor"]),
+    run(elsewhere, ["durum", "codex-a", "uyuyor"], codexToken),
     run(elsewhere, ["kayit", "X", "claude"]),
     run(folder, ["gonder", "codex-a", "--kimden", "claude-a", "--konu", "ğ".repeat(101), "--metin", "b"]),
     run(elsewhere, ["uc"]),
