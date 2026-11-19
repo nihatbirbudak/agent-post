@@ -19,7 +19,11 @@ own line, so one broken write costs one line, never two.
 
 ## Why atomic rename
 
-Whole-file records (registry, tasks, locks, settings) are written to a temporary file and renamed over the target.
+Whole-file records (registry, tasks, locks, settings) are written to a temporary file, forced to disk (`fsync`) and
+renamed over the target. Without the `fsync` a power cut can leave the new name on a file whose data never reached the
+disk (a file of zero bytes). The registry, which every call reads, also keeps a backup written after each change; it
+is read only when the registry's content is corrupt, never when the registry merely cannot be read right now, and the
+fallback is always logged and shown to the agents once.
 On Windows a rename can fail briefly while another process reads the file; the write retries for up to half a second.
 
 ## Why a token digest
@@ -34,7 +38,13 @@ All agents run as the same OS user and can read and write every post file. agent
 authorization boundary. It defends against:
 
 - **misattribution:** a message always says how its sender was verified (`folder`, `token`, `none`);
-- **accidental impersonation:** an agent cannot write as another agent from that agent's folder;
+- **accidental impersonation:** an agent cannot write as another agent from that agent's folder, nor as a
+  folder-bound agent from outside its folder; status and locks need a verified identity too;
+- **sessions sharing a folder:** a folder cannot tell two sessions in it apart, so names that matter (a lead session,
+  an assistant) can be reserved: they act only with their token, and only the installer registers them;
+- **one tool taking another's place:** a registered kind never changes, an `--as` server keeps its kind, and kind
+  `codex` stays out of installed Claude agents' folders, so a Codex session never becomes the folder's default
+  identity; protected agents accept only installed, token-verified senders that are not of kind codex;
 - **naive injection:** text that tells an agent to run `--from alice` from the wrong folder is rejected;
 - **secret leaks into the post:** the secret filter rejects common key, token and password formats.
 

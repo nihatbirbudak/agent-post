@@ -6,7 +6,8 @@ description: Local agent-post between the agents on this computer (Claude Code s
 # agent-post
 
 The post lives in `~/agent-post` (shared disk; every agent sees the same files). This session's identity comes from
-its working folder; if it is not found, call `register` first.
+its working folder (the folder's only Claude agent, or the one the installer marked as default); if none is found,
+call `register` first with your own name. A reserved name acts only with its token (`AGENT_POST_TOKEN`).
 
 ## Tools
 

@@ -12,8 +12,10 @@ existing root with another dialect's default name (`~/ajan-posta`).
 | Path | Content |
 |---|---|
 | `bin/agent-post.mjs` | installed copy of the core (`install.mjs`) |
-| `settings.json` | `dialect`, `token_mode` (`warn` default, `strict`), `approver` (name used in agent-facing texts) |
+| `settings.json` | `dialect`, `token_mode` (`warn` default, `strict`), `approver` (name used in agent-facing texts), `reserved_names` and `protected_agents` (lists of agent names, written by the installer), `protect_unaddressed` (boolean) |
 | `agents.json` | `{ "v": 1, "agents": { "<name>": Agent } }` |
+| `agents.json.bak` | the registry's last sound copy, written after every registry write; read only when `agents.json` cannot be parsed or has the wrong shape (since 0.2.0) |
+| `backup-warning.json` | `{ time, at_ms, copy_id, warning }`: shared copy of the warning after a read from the backup; shown once per process for 15 minutes, then removed (since 0.2.0) |
 | `inbox/<agent>.jsonl` | the agent's messages, append-only |
 | `read/<agent>.jsonl` | read markers `{ id, time }`; the inbox itself never changes |
 | `tasks/<id>.json` | one Task per file |
@@ -22,7 +24,7 @@ existing root with another dialect's default name (`~/ajan-posta`).
 | `log.jsonl` | one line per event (audit) |
 | `corrupt-lines.json` | signatures of corrupt lines already logged, per file |
 
-Every JSON file is written atomically (temporary file + rename). Appends and read-modify-write steps are serialized
+Every JSON file is written atomically (temporary file, forced to disk with `fsync`, then renamed). Appends and read-modify-write steps are serialized
 with a `<file>.lock` lock file created with `wx`; the lock file holds its owner's token and only the owner removes it.
 A crashed owner's lock is removed after 30 seconds by a remover that holds `<file>.lock.cleanup`.
 
@@ -33,7 +35,10 @@ Times are local ISO 8601 with offset (`2026-11-04T19:24:33+03:00`). Ids are `m-<
 
 **Agent:** `name`, `kind` (`claude | codex | api | assistant | other`), `account` (free label or null), `folder`
 (absolute or null), `registered_at`, `last_seen`, `status` (`idle | working | quota_full`), `quota_note`,
-`token_digest` (SHA-256 hex of the token, or null). Output replaces `token_digest` with `has_token`.
+`token_digest` (SHA-256 hex of the token, or null). Since 0.2.0, optional: `installed: true` (registered or corrected
+by `install.mjs`), `default: true` (the default identity of its folder), `owner_pid` (the post process of the session
+that registered a folderless codex agent); `last_seen` is null for an agent never seen. Output replaces
+`token_digest` with `has_token`.
 
 **Message:** `id`, `time`, `from`, `to`, `kind` (`message | task | reply`), `subject` (≤ 200 UTF-8 bytes), `text`
 (≤ 64 KiB), `attachments` (absolute paths, ≤ 20), `reply_to`, `task_id`, `verified` (`folder | token | none`).
@@ -50,7 +55,11 @@ conflict when they are equal or one contains the other.
 
 **Log entry:** `time`, `event` and event fields. Events: `register`, `send`, `status`, `task_open`, `task_claim`,
 `task_finish`, `lock`, `unlock`, `lock_expired`, `corrupt_line`, `token_issue`, `token_mode`, `identity_mismatch`,
-`invalid_token`, `token_required`, `identity_unverified`. Tokens are never logged.
+`invalid_token`, `token_required`, `identity_unverified`; since 0.2.0 also `corrupt_file_from_backup` (`file`,
+`main_time`, `backup_time`, `backup_age_s`, `backup_stale`), `backup_not_written` (`file`, `error`), `reserved_name`,
+`kind_immutable`, `identity_fixed`, `codex_folder_forbidden`, `inbox_identity_required`, `recipient_unowned`,
+`identity_required`, `protected_no_codex`, `protected_needs_install`, `protected_needs_token` and
+`folder_binding_removed`. Rejections never log the message text. Tokens are never logged.
 
 ## Tokens
 
@@ -59,5 +68,6 @@ constant-time. The secret filter rejects both prefixes in post text.
 
 ## Compatibility
 
-Readers skip corrupt lines (each is logged once). Unknown fields are kept when a record is rewritten. A change to
+Readers skip corrupt lines (each is logged once); a part of a line made only of zero bytes is not a line. 0.2.0 reads
+0.1.0 roots unchanged: a record without the new fields counts as not installed, not default and never owned. Unknown fields are kept when a record is rewritten. A change to
 this format raises the major version unless a reader for the old format ships with it.

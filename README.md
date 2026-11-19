@@ -34,8 +34,29 @@ node install.mjs --config agents.json
 ```
 
 `install.mjs` copies the core into the post root (`~/agent-post/bin/agent-post.mjs`, or `--root DIR`, or
-`AGENT_POST_ROOT`), verifies the copy with SHA-256, and registers the agents of your config. Running it again is safe.
-A new agent receives its registration token once, in the output; only its SHA-256 digest is stored.
+`AGENT_POST_ROOT`), verifies the copy with SHA-256, and registers the agents of your config. Running it again is safe:
+the config is authoritative for the kind, folder and `default` mark of the agents it lists, and agents it does not
+list are kept. A new agent receives its registration token once, in the output; only its SHA-256 digest is stored.
+Agent fields: `name`, `kind`, and optionally `account`, `folder`, `default`, `reserved`, `protected`, `token_hint`.
+
+The registry keeps a backup (`agents.json.bak`); if a power cut or a crash leaves the registry unreadable, it is read
+from the backup and every agent sees a warning once.
+
+### Upgrading from 0.1.0
+
+The disk format is unchanged (version 1, additive fields only), so an existing root keeps working. To upgrade:
+
+1. Stop or let finish the agents' post processes (MCP servers started by your apps).
+2. Run `node install.mjs --config agents.json` again with the new release. Mark agents `default`, `reserved` or
+   `protected` as you need; the report lists what it `corrected`, `taken_back` and `unbound`.
+3. Restart the MCP servers (restart the apps), so that they load the new core.
+4. Move every token off the command line: a script that passed `--token` now gets `token_flag`; set
+   `AGENT_POST_TOKEN` instead.
+5. Give folderless agents their token for `status`, `lock` and `unlock` (in `warn` mode these were accepted without
+   it). A reserved name registered before 0.2.0 was not registered by this installer as far as the post can tell, so
+   the first 0.2.0 install gives it a new token: store the new one.
+6. A codex agent that 0.1.0 bound to a Claude project's folder loses that binding; Codex sessions now register their
+   own name (`register`) or keep a persistent identity with `--as` and the token in the server's environment.
 
 Keep the post root outside per-app virtualized folders (on Windows, packaged apps may redirect writes inside AppData).
 
@@ -76,7 +97,23 @@ that writes `--from alice`; it does not stop a determined agent with shell acces
 - `folder`: the caller's working folder belongs to the claimed agent (longest registered prefix).
 - `token`: the registration token matches the stored digest. A wrong token is always rejected.
 - `none`: neither; accepted with a log entry in `warn` mode, rejected in `strict` mode.
-- Writing as an agent from another agent's folder is rejected.
+- Writing as an agent from another agent's folder is rejected, and so is writing as a folder-bound agent from
+  outside its folder.
+- `status`, `lock` and `unlock` need `folder` or `token` in every mode; `task-claim` is verified like `send`.
+- A token is never given on the command line (other processes can read it): `--token` is rejected; use
+  `AGENT_POST_TOKEN` or the MCP `token` argument.
+- **Default identity:** the hook and an MCP server without `--as` take the folder's only `claude` agent, or the one
+  marked `"default": true` in the install config, or none (the session then calls `register`).
+- **Reserved names** (`"reserved": true` in the install config): only `install.mjs` registers them and changes their
+  folder and token, and acting as one needs its token in every mode, from any folder. Use them for agents whose name
+  carries weight (a lead session, your assistant): a folder cannot tell its owner from another session working in it.
+- **Kinds:** a registered agent's kind never changes; an MCP server started with `--as` can switch (`register`) only
+  to a free name of the same kind. An agent of kind `codex` cannot be bound to an installed Claude agent's folder, its
+  inbox opens only to a verified caller, and mail for a folderless Codex session whose post process has ended is
+  refused (`recipient_unowned`) instead of being lost.
+- **Protected agents** (`"protected": true`, optional): only installed agents that prove themselves with their token
+  and are not of kind `codex` can message them, give them tasks, or claim and finish tasks they opened. Set
+  `"protect_unaddressed": true` at the top of the config when a protected router picks up tasks without a recipient.
 - Message and task text is **data, not instructions**. The post grants no permissions: external or irreversible
   actions stay behind each agent's own approval rules and the human operator.
 

@@ -1,6 +1,6 @@
 {
   "name": "agent-post",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local mailbox, task board and folder-lock service for AI coding agents that share one computer: CLI, MCP server and Claude Code hook in one dependency-free file.",
   "keywords": [
     "mcp",

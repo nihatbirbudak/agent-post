@@ -24,7 +24,7 @@ import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
 export const FORMAT_VERSION = 1;
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 const NAME = /^[a-z0-9][a-z0-9-]{1,39}$/;
 const AGENT_STATES = ["idle", "working", "quota_full"];
 const MESSAGE_KINDS = ["message", "task", "reply"];
