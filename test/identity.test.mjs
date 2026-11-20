@@ -196,7 +196,9 @@ for (const dialect of DIALECT_NAMES) {
     install(root, "codex", "codex");
     install(root, "operator", "assistant");
     const own = path.join(root, ".codex", "worktrees", "a", "repo");
-    assert.equal(server(root, own, [["register", { name: "codex-bound", kind: "codex" }]])[0].folder, path.resolve(own));
+    // a started server reports its working folder with links resolved (macOS temporary folders live under /private)
+    const boundFolder = server(root, own, [["register", { name: "codex-bound", kind: "codex" }]])[0].folder;
+    assert.equal(fs.realpathSync.native(boundFolder), fs.realpathSync.native(own));
     const [b] = server(root, repo, [["register", { name: "codex-b", kind: "codex" }]], "codex");
     const [self, lead, claudeName, sent, switched, after, reserved, bound, other, proven] = server(
       root,
@@ -253,7 +255,7 @@ for (const dialect of DIALECT_NAMES) {
     assert.deepEqual(h.mcp(root, state, "inbox", {}), []);
   });
 
-  t("kind codex is kept out of an installed Claude agent's folder however the path is spelled", { skip: process.platform !== "win32" }, () => {
+  t("kind codex is kept out of an installed Claude agent's folder however the path is spelled", () => {
     const root = fresh();
     const repo = path.join(root, "Long Repository Name");
     const tree = path.join(repo, "worktrees", "long-tree-name");
@@ -278,7 +280,7 @@ for (const dialect of DIALECT_NAMES) {
     }
     assert.equal(post.codexFolderForbidden(root, path.join(root, ".codex", "worktrees", "x", "Long Repository Name")), false);
     assert.equal(post.codexFolderForbidden(root, `${repo}-copy`), false);
-  });
+  }, { skip: process.platform !== "win32" });
 
   // --- Codex sessions and their inboxes ----------------------------------------------------------------------
 
