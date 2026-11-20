@@ -188,7 +188,7 @@ for (const dialect of DIALECT_NAMES) {
     const root = h.newRoot();
     const file = path.join(root, "text.txt");
     fs.writeFileSync(file, 'Quoted "long" text with ı ş ğ\nsecond line');
-    const sent = h.run(root, root, ["send", "alice", "--from", "bob", "--subject", "From file", "--text-file", file]);
+    const sent = h.run(root, path.join(root, "projects", "bob"), ["send", "alice", "--from", "bob", "--subject", "From file", "--text-file", file]);
     assert.equal(sent.status, 0, sent.stderr);
     const read = h.run(root, root, ["inbox", "alice", "--unread", "--mark-read"]);
     assert.equal(read.json()[0].text, 'Quoted "long" text with ı ş ğ\nsecond line');
@@ -254,7 +254,8 @@ for (const dialect of DIALECT_NAMES) {
     const registered = post.agents(root).bob.folder;
     const state = { me: null, folder: path.join(root, "other-session") };
     const reg = (args, s = state) => h.mcp(root, s, "register", args);
-    assert.equal(reg({ name: "bob", kind: "codex" }).error, undefined);
+    // a folder-bound agent is not taken over from outside its folder
+    assert.ok(reg({ name: "bob", kind: "codex" }).error.startsWith(error("identity_mismatch")));
     assert.equal(post.agents(root).bob.folder, registered);
     post.register(root, { name: "bob", kind: "codex", account: "codex-2" });
     assert.equal(post.agents(root).bob.folder, registered);
@@ -273,7 +274,7 @@ for (const dialect of DIALECT_NAMES) {
     assert.ok(token.startsWith(d.tokenPrefix));
     assert.equal(reg({ name: "bob", kind: "codex", folder: state.folder, token }).error, undefined);
     assert.equal(post.agents(root).bob.folder, path.resolve(state.folder));
-    assert.equal(h.logEvents(root, "identity_mismatch").length, 2);
+    assert.equal(h.logEvents(root, "identity_mismatch").length, 3);
   });
 
   // --- Sender verification: hostile cases -------------------------------------------------------------------
@@ -294,6 +295,9 @@ for (const dialect of DIALECT_NAMES) {
     const state = { me: null, folder: path.join(root, "projects", "bob") };
     assert.ok(h.mcp(root, state, "register", { name: "alice", kind: "claude" }).error.startsWith(error("identity_mismatch")));
     assert.equal(state.me, null);
+    // the folder's only agent is of kind codex: no default identity, the session names itself
+    assert.ok(h.mcp(root, state, "send", { to: "operator", subject: "note", text: "x" }).error.startsWith(error("not_registered")));
+    assert.equal(h.mcp(root, state, "register", { name: "bob", kind: "codex" }).error, undefined);
     h.mcp(root, state, "send", { to: "operator", subject: "note", text: "x" });
     assert.deepEqual(post.inbox(root, "operator").map((m) => [m.from, m.verified]), [["alice", "folder"], ["bob", "folder"]]);
   });
@@ -324,8 +328,12 @@ for (const dialect of DIALECT_NAMES) {
     assert.equal(h.run(root, place, args).status, 1);
     const withEnv = h.run(root, place, args, { token });
     assert.equal(withEnv.status, 0, withEnv.stderr);
-    assert.ok(h.run(root, place, [...args, "--token", wrong]).stderr.startsWith(error("invalid_token")));
-    assert.ok(h.run(root, place, [...args, "--token"]).stderr.startsWith(error("missing_argument")));
+    // a token is never taken from the command line (other processes can read it), right or wrong
+    for (const extra of [["--token", wrong], ["--token", token], ["--token"]]) {
+      const flagged = h.run(root, place, [...args, ...extra]);
+      assert.ok(flagged.stderr.startsWith(`${error("token_flag")}: `), flagged.stderr);
+      assert.ok(!flagged.stderr.includes(token));
+    }
     // strict mode: an agent bound to a folder writes from it without a token
     post.send(root, { from: "bob", to: "operator", subject: "a", text: "b", folder: path.join(root, "projects", "bob") });
     assert.equal(post.inbox(root, "operator").at(-1).verified, "folder");
@@ -389,6 +397,9 @@ for (const dialect of DIALECT_NAMES) {
     const aliceFolder = path.join(root, "projects", "alice");
     post.register(root, { name: "carol", kind: "claude", folder: aliceFolder });
     assert.deepEqual(post.folderCandidates(root, path.join(aliceFolder, "worktree")), ["alice", "carol"]);
+    // two Claude agents and no mark: no default identity; the installer's `default` mark picks one
+    assert.equal(post.folderAgent(root, path.join(aliceFolder, "worktree")), null);
+    post.register(root, { name: "alice", kind: "claude", folder: aliceFolder, install: true, default: true });
     assert.equal(post.folderAgent(root, path.join(aliceFolder, "worktree")), "alice");
     post.send(root, { from: "carol", to: "operator", subject: "a", text: "b", folder: path.join(aliceFolder, "worktree") });
     assert.equal(post.inbox(root, "operator")[0].verified, "folder");

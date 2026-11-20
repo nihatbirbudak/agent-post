@@ -1,13 +1,19 @@
-// Installs agent-post: copies the core into the post root's bin folder, declares the root's dialect and registers the agents from a config file (safe to run again).
+// Installs agent-post: copies the core into the post root's bin folder, declares the root's dialect, registers the agents of a config file and corrects their records (safe to run again; upgrades an existing root in place).
 //
 // Usage: node install.mjs [--config agents.json] [--root DIR] [--dialect en|tr-v1] [--issue-tokens] [--mode warn|strict]
-//   --config        JSON file: { "dialect"?, "approver"?, "agents": [{ "name", "kind", "account"?, "folder"?, "token_hint"? }] }
+//   --config        JSON file: { "dialect"?, "approver"?, "protect_unaddressed"?, "agents": [{ "name", "kind",
+//                   "account"?, "folder"?, "default"?, "reserved"?, "protected"?, "token_hint"? }] }
 //                   (folders may start with ~ or be relative to the config file)
 //   --root          post root (default: the dialect's root variable, or ~/agent-post)
 //   --dialect       dialect of a new root (default: the config's, the existing root's, or en)
 //   --issue-tokens  gives a token to every registered agent that has none
 //   --mode          writes the token mode (warn is the default)
-// New and issued plain tokens appear once, in this output only; the registry keeps their SHA-256 digest.
+// The config is authoritative for the agents it lists: every run brings their kind, folder (none when the config gives
+// none) and `default` mark to the config's values and marks them installed. `reserved` names are registered only by
+// this installer and act only with their token; a reserved name that someone else registered first is taken back with
+// a new token. `protected` agents are reached only by installed, token-verified senders that are not of kind codex.
+// Agents missing from the config are kept; only a codex agent bound to an installed Claude agent's folder loses that
+// binding. New and issued plain tokens appear once, in this output only; the registry keeps their SHA-256 digest.
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -38,14 +44,17 @@ function expand(folder, base) {
 }
 
 function readConfig(file) {
-  if (!file) return { agents: [] };
+  if (!file) return { agents: [], given: false };
   const config = JSON.parse(fs.readFileSync(file, "utf8"));
   if (!config || typeof config !== "object" || (config.agents !== undefined && !Array.isArray(config.agents))) {
     throw new Error("The config must be an object with an \"agents\" list.");
   }
   const base = path.dirname(path.resolve(file));
   const agents = (config.agents ?? []).map((agent) => ({ ...agent, folder: expand(agent.folder, base) }));
-  return { ...config, agents };
+  const names = agents.map((agent) => agent.name);
+  const twice = names.filter((name, index) => names.indexOf(name) !== index);
+  if (twice.length) throw new Error(`The config lists an agent more than once: ${[...new Set(twice)].join(", ")}`);
+  return { ...config, agents, given: true };
 }
 
 function chooseRoot(args, dialect) {
@@ -81,17 +90,66 @@ export async function install(args) {
   fs.renameSync(temporary, target);
 
   const post = await import(pathToFileURL(target).href);
-  post.initRoot(root, { dialect, ...(config.approver !== undefined ? { approver: config.approver } : {}) });
-  const registered = post.agents(root);
+  // a config is the list of record: it sets both lists (and clears a list it no longer marks anyone for); a run
+  // without a config keeps them, and a root that never used them gets no new settings
+  const lists = {};
+  if (config.given && fs.existsSync(path.join(root, d.files.settings))) {
+    lists.reserved_names = post.reservedNames(root);
+    lists.protected_agents = post.protectedAgents(root);
+  }
+  for (const [field, flag] of [["reserved_names", "reserved"], ["protected_agents", "protected"]]) {
+    const names = config.agents.filter((agent) => agent[flag] === true).map((agent) => agent.name);
+    if (config.given && (names.length || lists[field]?.length)) lists[field] = names;
+    else delete lists[field];
+  }
+  post.initRoot(root, {
+    dialect,
+    ...(config.approver !== undefined ? { approver: config.approver } : {}),
+    ...lists,
+    ...(config.protect_unaddressed !== undefined ? { protect_unaddressed: config.protect_unaddressed } : {}),
+  });
+
+  const before = post.agents(root);
   const added = [];
+  const corrected = {};
+  const takenBack = [];
   const tokens = {};
   const hints = {};
-  for (const agent of config.agents) {
-    if (agent.token_hint) hints[agent.name] = String(agent.token_hint);
-    if (registered[agent.name]) continue;
+  // Claude agents first: a codex agent's folder is checked against the installed Claude folders
+  const order = [...config.agents].sort((a, b) => Number(b.kind === "claude") - Number(a.kind === "claude"));
+  for (const agent of order) {
     const { name, kind, account = null, folder = null } = agent;
-    tokens[name] = post.register(root, { name, kind, account, folder }).token;
-    added.push(name);
+    if (agent.token_hint) hints[name] = String(agent.token_hint);
+    if (kind === "codex" && folder && post.codexFolderForbidden(root, folder)) {
+      throw new Error(`${name}: an agent of kind codex cannot be bound to an installed Claude agent's folder (${folder}).`);
+    }
+    const old = before[name];
+    // a reserved name registered by someone other than the installer is taken back: its old token stops working
+    const taken = Boolean(old && agent.reserved === true && !old.installed);
+    const result = post.register(root, {
+      name,
+      kind,
+      account,
+      folder,
+      install: true,
+      default: agent.default === true,
+      new_token: taken,
+    });
+    if (result.token) tokens[name] = result.token;
+    if (!old) added.push(name);
+    else if (result.corrected.length) corrected[name] = result.corrected;
+    if (taken) takenBack.push(name);
+  }
+  const kept = [];
+  const unbound = [];
+  for (const [name, agent] of Object.entries(post.agents(root))) {
+    if (config.agents.some((listedAgent) => listedAgent.name === name)) continue;
+    if (agent.kind === "codex" && agent.folder && post.codexFolderForbidden(root, agent.folder)) {
+      post.unbindFolder(root, name);
+      unbound.push(name);
+    } else {
+      kept.push(name);
+    }
   }
   if (args.includes("--issue-tokens")) {
     for (const [name, agent] of Object.entries(post.agents(root))) {
@@ -100,13 +158,16 @@ export async function install(args) {
   }
   if (mode !== null) post.setTokenMode(root, mode);
   const all = post.agents(root);
+  const reserved = post.reservedNames(root);
   const where = Object.fromEntries(
     Object.keys(tokens).map((name) => [
       name,
       hints[name] ??
-        (all[name]?.folder
-          ? "verified from its folder; no need to store the token"
-          : `pass it as the register tool's token argument or in ${d.env.token}`),
+        (reserved.includes(name)
+          ? `a reserved name acts only with its token: store it where this agent's sessions read ${d.env.token}`
+          : all[name]?.folder
+            ? "verified from its folder; no need to store the token"
+            : `pass it as the register tool's token argument or in ${d.env.token}`),
     ]),
   );
   return {
@@ -115,7 +176,13 @@ export async function install(args) {
     file: target,
     sha256: digest(target),
     added,
+    corrected,
+    taken_back: takenBack,
+    kept,
+    unbound,
     agents: Object.keys(all),
+    reserved,
+    protected: post.protectedAgents(root),
     token_mode: post.tokenMode(root),
     tokens,
     where,

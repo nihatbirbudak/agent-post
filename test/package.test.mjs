@@ -49,3 +49,13 @@ test("package.json declares the module type, the command, Node 20+, the MIT lice
   const license = fs.readFileSync(path.join(ROOT, "LICENSE"), "utf8").replace(/\r\n/g, "\n");
   assert.ok(license.startsWith(`MIT License\n\nCopyright (c) 2026 ${pkg.author}\n`));
 });
+
+test("the core, the MCP server and the changelog carry the package version", async () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+  const core = await import(new URL("../src/agent-post.mjs", import.meta.url).href);
+  assert.equal(core.VERSION, pkg.version);
+  assert.equal(core.DIALECTS.en.server.version, pkg.version);
+  const heading = `## [${pkg.version}] - `;
+  const lines = fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8").split(/\r?\n/);
+  assert.ok(lines.some((line) => line.startsWith(heading) && /^\d{4}-\d{2}-\d{2}$/.test(line.slice(heading.length))), heading);
+});

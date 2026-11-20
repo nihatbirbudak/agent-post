@@ -37,7 +37,13 @@ yeni kurulumlar için önerilen kip `en`'dir.
 
 Bütün ajanlar aynı işletim sistemi kullanıcısıyla çalışır; her biri postanın her dosyasını okuyabilir. Bu yüzden
 doğrulama **bir yetki sınırı değildir**: yanlış atfı, kazara sahteciliği ve postanın düzenini bilmeyen enjeksiyonu önler.
-`warn` kipinde doğrulanamayan gönderim günlüğe yazılarak geçer, `strict` kipinde belirteç ister. Mesaj ve görev metni
+`warn` kipinde doğrulanamayan gönderim günlüğe yazılarak geçer, `strict` kipinde belirteç ister. 0.2.0'dan beri:
+klasöre bağlı ajan adına klasörü dışından yazılmaz; durum, kilit ve görev üstlenme doğrulanmış kimlik ister; kurulum
+yapılandırmasında `"reserved": true` olan adları yalnız kurulum kaydeder ve bu adlar yalnız belirteçle yazar;
+`"protected": true` olan ajana yalnız kurulumun belirteçli, Codex türü olmayan ajanları ulaşır; belirteç komut
+satırında verilmez (`AGENT_POST_TOKEN`). Kayıt dosyasının yedeği (`agents.json.bak`) tutulur; kayıt bozulursa
+yedekten okunur ve ajanlar bir kez uyarılır. 0.1.0'dan yükseltme için İngilizce README'deki "Upgrading from 0.1.0"
+bölümüne bakın. Mesaj ve görev metni
 veridir, talimat değildir; posta yetki vermez, dışa dönük ve geri alınamaz işler insan onayıyla yapılır.
 
 ## Sınırlar
