@@ -528,7 +528,7 @@ const TR_V1 = {
       `${name} ayrılmış bir ad. ${name} değilsen kayit_ol ile kendi adını al ve onunla yaz; ` +
       `${name} adına yalnız ${name} kendi belirteciyle yazar.`,
     kindImmutable: (name, kind) => `${name} kayıtlı ajanın türü ${kind}; tür değişmez (yalnız kurulum düzeltir).`,
-    codexFolder: (folder) => `Codex türündeki ajan bir yöneticinin klasörüne ya da içine bağlanamaz: ${folder}`,
+    codexFolder: (folder) => `Codex türündeki ajan kurulumun bir Claude ajanının klasörüne ya da içine bağlanamaz: ${folder}`,
     ownFolderOnly: (name) => `${name} kendi klasörüne bağlı; o klasörün dışından ${name} adına yazılamaz.`,
     inboxIdentity: (name) =>
       `${name} kutusu yalnız ${name} olduğu doğrulanan oturuma açılır (kendi klasörü ya da kayit_ol'un verdiği belirteç).`,
@@ -893,6 +893,21 @@ export function withFileLock(root, file, work, { wait = LOCK_WAIT_MS } = {}) {
   }
 }
 
+/** Forces a folder's entries to disk after a rename, so the new name survives a power cut (POSIX; Windows cannot open
+ * a folder for `fsync` and commits the rename with the file system's journal). Best effort: some file systems refuse. */
+function syncFolder(folder) {
+  if (process.platform === "win32") return;
+  let fd;
+  try {
+    fd = fs.openSync(folder, "r");
+    fs.fsyncSync(fd);
+  } catch {
+    // the folder cannot be synced here: the rename itself stands
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 /** Writes a temporary file, forces it to disk (`fsync`), then puts it in place. Without the `fsync`, a power cut after
  * the rename can leave the new name on a file whose data never reached the disk (a file full of zero bytes). */
 export function atomicWrite(file, text) {
@@ -910,6 +925,7 @@ export function atomicWrite(file, text) {
   for (let attempt = 0; ; attempt++) {
     try {
       fs.renameSync(temporary, file);
+      syncFolder(path.dirname(file));
       return;
     } catch (error) {
       // On Windows a rename is refused briefly while another process reads the target.
@@ -1881,12 +1897,12 @@ export function openTask(root, { from, title, text, areas = [], to = null, kind 
   const normalAreas = [...new Set(areas.map((area) => normalArea(ctx, area)))];
   const verified = verifySender(ctx, from, { folder, token, operation: "task_open" });
   if (to !== null) checkRecipient(ctx, to); // before the task is written: no task for an inbox nobody reads
+  // before the task is written: a task for a protected agent passes the gate whoever opens it; only a protected agent
+  // opening a task without a recipient (for a protected router) is exempt
   const guarded = protectedAgents(ctx);
-  if (!guarded.includes(from)) {
-    if (to !== null && guarded.includes(to)) protectionGate(ctx, from, to, "task_open", verified);
-    if (to === null && guarded.length && readSettings(ctx).protect_unaddressed === true) {
-      protectionGate(ctx, from, guarded.join(", "), "task_open", verified);
-    }
+  if (to !== null && guarded.includes(to)) protectionGate(ctx, from, to, "task_open", verified);
+  if (to === null && !guarded.includes(from) && guarded.length && readSettings(ctx).protect_unaddressed === true) {
+    protectionGate(ctx, from, guarded.join(", "), "task_open", verified);
   }
   const time = now();
   const task = {

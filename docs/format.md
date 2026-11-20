@@ -24,7 +24,8 @@ existing root with another dialect's default name (`~/ajan-posta`).
 | `log.jsonl` | one line per event (audit) |
 | `corrupt-lines.json` | signatures of corrupt lines already logged, per file |
 
-Every JSON file is written atomically (temporary file, forced to disk with `fsync`, then renamed). Appends and read-modify-write steps are serialized
+Every JSON file is written atomically (temporary file, forced to disk with `fsync`, then renamed; on Linux and macOS
+the folder is synced after the rename). Appends and read-modify-write steps are serialized
 with a `<file>.lock` lock file created with `wx`; the lock file holds its owner's token and only the owner removes it.
 A crashed owner's lock is removed after 30 seconds by a remover that holds `<file>.lock.cleanup`.
 

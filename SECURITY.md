@@ -34,6 +34,7 @@ Identity rules since 0.2.0, all enforced at the CLI and MCP boundary:
   token, from any folder.
 - An agent's kind never changes; an MCP server started with `--as` switches only to a free name of its own kind.
 - Kind `codex` is kept out of installed Claude agents' folders; a codex-kind inbox opens only to a verified caller.
+  Reading or marking an inbox other than a codex agent's is not identity-checked, for reserved names too.
 - Protected agents (optional) are reached only by installed, token-verified senders that are not of kind codex.
 - A token is never accepted on the command line (`token_flag`); use `AGENT_POST_TOKEN` or the MCP `token` argument.
 

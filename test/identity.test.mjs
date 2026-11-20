@@ -510,6 +510,22 @@ for (const dialect of DIALECT_NAMES) {
     assert.equal(post.register(root, { name: "spare-2", kind: "claude" }).name, "spare-2"); // not reserved: free
   });
 
+  t("a protected sender opening a task for another protected agent passes the gate too, before the task is written", () => {
+    const root = fresh({ reserved_names: ["operator"], protected_agents: ["alice", "operator"] });
+    const aliceFolder = path.join(root, "projects", "alice");
+    install(root, "alice", "claude", aliceFolder, true);
+    const operator = install(root, "operator", "assistant").token;
+    const worktree = path.join(aliceFolder, "wt");
+    for (const to of ["operator", "alice"]) {
+      const refused = h.run(root, worktree, ["task-open", "--from", "alice", "--title", "sneaky", "--text", "x", "--to", to]);
+      assert.equal(code(refused), error("protected_needs_token"), refused.stderr);
+    }
+    assert.deepEqual(post.tasks(root), []);
+    assert.ok(!fs.existsSync(post.layout(root).inbox("operator")));
+    // the other way round, proven by its token, is allowed
+    assert.equal(post.openTask(root, { from: "operator", to: "alice", title: "ok", text: "x", token: operator }).verified, "token");
+  });
+
   t("a protected agent's rejection tells the sender what to do", () => {
     const root = fresh({ protected_agents: ["operator"], protect_unaddressed: true });
     install(root, "operator", "assistant");

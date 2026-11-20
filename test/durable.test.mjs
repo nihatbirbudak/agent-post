@@ -26,7 +26,7 @@ const WARNING = {
   "tr-v1": { mcp: /^uyari: ajanlar\.json bozuk; kayıt yedekten okundu, yedeğin yaşı /, hook: /Ajan postası uyarısı: ajanlar\.json bozuk/ },
 };
 
-test("an atomic write forces the temporary file to disk before it takes the target's name", () => {
+test("an atomic write forces the temporary file to disk before it takes the target's name (and the folder after it on POSIX)", () => {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "agent-post-fsync-"));
   const file = path.join(folder, "x.json");
   const order = [];
@@ -46,7 +46,8 @@ test("an atomic write forces the temporary file to disk before it takes the targ
         () => post.atomicWrite(file, '{"a": 1}\n'),
       ),
   );
-  assert.deepEqual(order, ["fsync", "rename:x.json"]);
+  // on POSIX the folder is synced after the rename too, so the new name survives a power cut
+  assert.deepEqual(order, process.platform === "win32" ? ["fsync", "rename:x.json"] : ["fsync", "rename:x.json", "fsync"]);
   assert.equal(fs.readFileSync(file, "utf8"), '{"a": 1}\n');
   assert.deepEqual(fs.readdirSync(folder), ["x.json"]);
 });

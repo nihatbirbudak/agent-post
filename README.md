@@ -48,7 +48,11 @@ The disk format is unchanged (version 1, additive fields only), so an existing r
 
 1. Stop or let finish the agents' post processes (MCP servers started by your apps).
 2. Run `node install.mjs --config agents.json` again with the new release. Mark agents `default`, `reserved` or
-   `protected` as you need; the report lists what it `corrected`, `taken_back` and `unbound`.
+   `protected` as you need; the report lists what it `corrected`, `taken_back` and `unbound`. The config is
+   authoritative: a listed agent's folder becomes the config's folder, and is cleared when the config gives none (a
+   binding made with `register --folder` under 0.1.0 is lost; put it in the config). A codex agent configured inside
+   a Claude agent's folder stops the install with an error after the Claude agents were written; fix the config and
+   run it again.
 3. Restart the MCP servers (restart the apps), so that they load the new core.
 4. Move every token off the command line: a script that passed `--token` now gets `token_flag`; set
    `AGENT_POST_TOKEN` instead.

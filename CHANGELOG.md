@@ -22,6 +22,7 @@ additive, and a 0.1.0 root is read as it is. See "Upgrading from 0.1.0" in the R
   a background poller cannot use it up. A failed backup write is logged (`backup_not_written`) and does not fail the
   call.
 - A JSONL part made only of zero bytes (an append that never reached the disk) is not reported as a corrupt line.
+- On Linux and macOS the folder is synced after the rename too, so the new name itself survives a power cut.
 - The default identity of a folder (hook, MCP without `--as`) picked the first agent registered there, so a Claude
   session could take a Codex agent's identity. It is now the folder's only `claude` agent, or the one the installer
   marked `default`, or none (the session names itself with `register`).
@@ -62,6 +63,12 @@ What a 0.1.0 client may have to change; see "Upgrading from 0.1.0" in the README
 - A folder-bound agent can no longer be used from outside its folder (`identity_mismatch`), and the hook no longer
   takes a codex agent, or one of several unmarked Claude agents, as a folder's identity.
 - In MCP, `register` no longer binds kinds other than `claude` (and allowed `codex`) to the session folder.
+- Registering a registered agent with another kind is refused (`kind_immutable`); 0.1.0 changed the kind silently.
+- `task-claim` is verified: claiming as a folder-bound agent from outside its folder gets `identity_mismatch`.
+- An MCP server started with `--as` can no longer `register` as an agent of another kind, a reserved name or another
+  session's registration (`identity_fixed`).
+- Mail and tasks for a folderless codex agent whose registering session has ended are refused (`recipient_unowned`).
+- `install.mjs` sets a listed agent's folder to the config's value, and clears it when the config gives none.
 
 ### Changed
 
